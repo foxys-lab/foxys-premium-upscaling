@@ -1,31 +1,25 @@
 import type { BrowserCapabilities, CapabilityStatus } from "../lib/capabilities";
 
-function label(status: CapabilityStatus): string {
-  if (status === "ok") return "ok";
-  if (status === "warn") return "warn";
-  if (status === "bad") return "bad";
-  return "unknown";
-}
-
-function Badge({
-  name,
-  status,
-}: {
-  name: string;
-  status: CapabilityStatus;
-}) {
+function Badge({ name, status }: { name: string; status: CapabilityStatus }) {
+  const cls =
+    status === "ok" ? "ok" : status === "warn" ? "warn" : status === "bad" ? "bad" : "";
   return (
-    <span className={`badge ${label(status)}`}>
-      {name}: {status}
+    <span className={`badge ${cls}`}>
+      <span className="badge-dot" aria-hidden />
+      {name}
     </span>
   );
 }
 
-export function CapabilityBadges({ caps }: { caps: BrowserCapabilities | null }) {
+export function CapabilityBadges({
+  caps,
+}: {
+  caps: BrowserCapabilities | null;
+}) {
   if (!caps) {
     return (
       <div className="badge-row">
-        <span className="badge">Checking GPU…</span>
+        <span className="badge">Probing GPU…</span>
       </div>
     );
   }

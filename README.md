@@ -1,10 +1,12 @@
 # AI Video Upscaler
 
-**Free · Private · Browser-only** AI video & image upscaler.
+**Free · Private · Quality-first** browser AI video & image upscaler.
 
-Drop a video, pick a preset, download a sharper result. Processing runs **100% on your device** with WebGPU — files never leave your machine. No signup. No watermark. No cloud required.
+Drop a clip, pick a **quality preset**, tune the **multi-stage pipeline**, scrub **before/after**. Processing runs **100% on your device** — no signup, no watermark, no upload.
 
-> Inspired by [free.upscaler.video](https://free.upscaler.video/) / [WebSR](https://github.com/sb2702/websr), built to improve quality presets, batch jobs, resume, and creator UX.
+> Inspired by [free.upscaler.video](https://free.upscaler.video/) / [WebSR](https://github.com/sb2702/websr). We match their friction, then win on **output quality** and **product polish**.
+
+**North star:** [docs/quality-and-polish.md](docs/quality-and-polish.md)
 
 ---
 
@@ -25,27 +27,22 @@ Casual upscalers are either:
 
 ## Features (roadmap)
 
-### MVP (in progress)
+### Quality + polish (priority)
 - [x] Project scaffold (Vite + React + TypeScript)
-- [ ] Drag & drop video / image
-- [ ] WebGPU capability check + clear fallbacks
-- [ ] Presets: **Fast · Balanced · Anime · Max**
-- [ ] Single-frame preview before full run
-- [ ] Progress %, ETA, pause / resume
-- [ ] Before / after split view
-- [ ] MP4 or WebM download (browser-supported codecs)
-
-### Phase 2
-- [ ] Batch queue (multiple short clips)
-- [ ] Denoise / deblock pre-pass
-- [ ] Face-aware optional pass
-- [ ] OPFS crash-safe checkpoints
+- [x] Drag & drop + capability badges
+- [x] Multi-stage pipeline model (deblock → SR → detail → temporal → face)
+- [x] Presets: **Fast · Balanced · Anime · AI-gen · Face · Max**
+- [x] Stage strength sliders + relative load hint
+- [x] Before/after compare scrubber (images live; video frames next)
+- [x] Stage-aware progress UI
+- [ ] Real WebGPU / WebGL stage implementations
+- [ ] One-frame preview before full video run
+- [ ] Bitrate-aware encode + download
+- [ ] Temporal + face models on device
+- [ ] Fixture A/B vs free.upscaler.video
 - [ ] GitHub Pages deploy
 
-### Phase 3
-- [ ] Temporal consistency (less flicker)
-- [ ] Optional cloud “boost” for long / exotic formats
-- [ ] PWA / offline shell
+Batch / cloud / PWA wait until quality clearly wins on benchmarks.
 
 ---
 

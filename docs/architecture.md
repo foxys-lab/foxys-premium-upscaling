@@ -2,19 +2,30 @@
 
 ## Goals
 
-1. **Local-first** — video never leaves the device unless the user opts into a future cloud boost.
-2. **Better than generic free tools** — presets, queue, resume, deblock, creator UX.
-3. **GitHub-friendly** — MIT, CI, Pages deploy, clear model docs.
+1. **Quality-first** — multi-stage pipeline beats single-pass free tools (see [quality-and-polish.md](./quality-and-polish.md)).
+2. **Polish** — preset cards, stage sliders, compare scrubber, stage-aware progress.
+3. **Local-first** — video never leaves the device unless the user opts into a future cloud boost.
+4. **GitHub-friendly** — MIT, CI, Pages deploy, clear model docs.
 
 ## Pipeline
 
 ```
-┌──────────┐   ┌─────────────┐   ┌──────────────┐   ┌──────────┐
-│  File    │→  │  WebCodecs  │→  │  WebGPU SR   │→  │ Encode   │
-│  input   │   │  decode     │   │  (+ deblock) │   │ MP4/WebM │
-└──────────┘   └─────────────┘   └──────────────┘   └──────────┘
-                      │                  │
-                      └──── Workers ─────┘
+decode
+  → deblock / artifact clean
+  → super-resolution
+  → edge clarity
+  → temporal calm (video)
+  → face refine (optional)
+  → encode (bitrate-aware)
+```
+
+```
+┌──────────┐   ┌─────────────┐   ┌────────────────────┐   ┌──────────┐
+│  File    │→  │  WebCodecs  │→  │  Quality stages    │→  │ Encode   │
+│  input   │   │  decode     │   │  (WebGPU / WebGL)  │   │ MP4/WebM │
+└──────────┘   └─────────────┘   └────────────────────┘   └──────────┘
+                      │                     │
+                      └────── Workers ──────┘
 ```
 
 ### Stages
@@ -23,20 +34,20 @@
 |-------|------|--------|
 | Ingest | File API / drag-drop | MP4, WebM, images first |
 | Decode | WebCodecs `VideoDecoder` | Fallback: draw to canvas from `<video>` |
-| Enhance | WebGPU compute (primary), WebGL fallback | Presets map to model + pre/post |
-| Encode | WebCodecs `VideoEncoder` | H.264 when available, else VP9/WebM |
-| Persist | Blob download; later OPFS checkpoints | Resume long jobs |
+| Enhance | Multi-stage; WebGPU primary | Presets set stage strengths 0–100 |
+| Encode | WebCodecs `VideoEncoder` | Bitrate floor by resolution |
+| Persist | Blob download; later OPFS | Resume long jobs |
 
 ## Modules (`src/lib`)
 
 | Module | Role |
 |--------|------|
 | `capabilities.ts` | Feature detection |
-| `presets.ts` | Fast / Balanced / Anime / Max |
-| `job.ts` | Job metadata + formatting |
+| `pipeline.ts` | Stage model, cost estimate |
+| `presets.ts` | Fast / Balanced / Anime / AI-gen / Face / Max |
+| `job.ts` | Job metadata + demo runner |
 | `gpu/` (planned) | Device, pipelines, tiling |
 | `codecs/` (planned) | Demux / mux helpers |
-| `queue.ts` (planned) | Batch multi-file jobs |
 
 ## Workers
 

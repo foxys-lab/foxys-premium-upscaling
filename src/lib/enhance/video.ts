@@ -137,8 +137,7 @@ export async function enhanceVideo(
         lastDrawn = t;
         const glCanvas = engine.enhanceSource(video, srcW, srcH, {
           scale: outW / srcW,
-          sharp: 0.42,
-          deblock: 0.28,
+          strength: 0.9,
         });
         octx.drawImage(glCanvas, 0, 0, outW, outH);
         if (duration > 0) {
@@ -179,8 +178,7 @@ export async function enhanceVideo(
     if (video.readyState >= 2) {
       const glCanvas = engine.enhanceSource(video, srcW, srcH, {
         scale: outW / srcW,
-        sharp: 0.42,
-        deblock: 0.28,
+        strength: 0.9,
       });
       octx.drawImage(glCanvas, 0, 0, outW, outH);
     }

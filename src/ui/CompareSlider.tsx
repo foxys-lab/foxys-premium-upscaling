@@ -10,23 +10,22 @@ import {
 interface CompareSliderProps {
   beforeUrl?: string | null;
   afterUrl?: string | null;
+  /** Prefer live WebGPU canvas when blob after is black/broken. */
+  afterCanvas?: HTMLCanvasElement | null;
   beforeLabel?: string;
   afterLabel?: string;
   emptyHint?: string;
-  /** Hide section header (for compact result card). */
   compact?: boolean;
-  /** Extra class on track (e.g. fullscreen). */
   className?: string;
 }
 
 /**
- * Competitor-style before/after scrubber.
- * Portrait-friendly: track aspect follows the image.
- * Left = original, right = enhanced.
+ * Left = original (beforeUrl), right = enhanced (afterUrl or afterCanvas).
  */
 export function CompareSlider({
   beforeUrl,
   afterUrl,
+  afterCanvas,
   beforeLabel = "Original",
   afterLabel = "Enhanced",
   emptyHint = "Load a file and run enhance to compare quality here.",
@@ -34,6 +33,7 @@ export function CompareSlider({
   className = "",
 }: CompareSliderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const afterSlotRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(50);
   const [trackW, setTrackW] = useState(0);
   const [aspect, setAspect] = useState<number | null>(null);
@@ -41,15 +41,40 @@ export function CompareSlider({
 
   useEffect(() => {
     setPos(50);
-  }, [beforeUrl, afterUrl]);
+  }, [beforeUrl, afterUrl, afterCanvas]);
 
-  // Measure natural aspect from whichever image loads
+  // Mount live canvas into the after layer (free.upscaler approach)
+  useEffect(() => {
+    const slot = afterSlotRef.current;
+    if (!slot) return;
+    slot.replaceChildren();
+    if (afterCanvas) {
+      afterCanvas.style.width = "100%";
+      afterCanvas.style.height = "100%";
+      afterCanvas.style.objectFit = "contain";
+      afterCanvas.style.display = "block";
+      afterCanvas.style.position = "absolute";
+      afterCanvas.style.inset = "0";
+      afterCanvas.style.opacity = "1";
+      afterCanvas.style.left = "0";
+      afterCanvas.style.top = "0";
+      afterCanvas.style.pointerEvents = "none";
+      slot.appendChild(afterCanvas);
+      if (afterCanvas.width > 0 && afterCanvas.height > 0) {
+        setAspect(afterCanvas.width / afterCanvas.height);
+      }
+    }
+    return () => {
+      // Don't destroy the canvas node ownership fully if parent reuses it
+      if (afterCanvas && afterCanvas.parentElement === slot) {
+        slot.removeChild(afterCanvas);
+      }
+    };
+  }, [afterCanvas]);
+
   useEffect(() => {
     const url = afterUrl || beforeUrl;
-    if (!url) {
-      setAspect(null);
-      return;
-    }
+    if (!url || afterCanvas) return;
     const img = new Image();
     img.onload = () => {
       if (img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -57,7 +82,7 @@ export function CompareSlider({
       }
     };
     img.src = url;
-  }, [beforeUrl, afterUrl]);
+  }, [beforeUrl, afterUrl, afterCanvas]);
 
   useEffect(() => {
     const el = trackRef.current;
@@ -67,7 +92,7 @@ export function CompareSlider({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [beforeUrl, afterUrl, aspect]);
+  }, [beforeUrl, afterUrl, afterCanvas, aspect]);
 
   const setFromClientX = useCallback((clientX: number) => {
     const el = trackRef.current;
@@ -111,9 +136,8 @@ export function CompareSlider({
   };
 
   const hasBefore = Boolean(beforeUrl);
-  const hasAfter = Boolean(afterUrl);
+  const hasAfter = Boolean(afterUrl || afterCanvas);
   const hasMedia = hasBefore || hasAfter;
-  const baseUrl = afterUrl || beforeUrl;
 
   const trackStyle =
     aspect != null
@@ -125,7 +149,7 @@ export function CompareSlider({
       {!compact && (
         <div className="section-head">
           <h3>Quality compare</h3>
-          <p>Drag the handle — left original, right enhanced.</p>
+          <p>Drag — left original, right AI enhanced.</p>
         </div>
       )}
 
@@ -141,7 +165,7 @@ export function CompareSlider({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(pos)}
-        aria-label="Original versus enhanced comparison"
+        aria-label="Original versus enhanced"
         tabIndex={0}
         onKeyDown={onKeyDown}
       >
@@ -151,16 +175,20 @@ export function CompareSlider({
           </div>
         )}
 
-        {hasMedia && baseUrl && (
+        {hasMedia && (
           <>
+            {/* Full enhanced underneath (right side when scrubbed) */}
             <div className="compare-layer compare-base">
-              <img
-                src={baseUrl}
-                alt={hasAfter ? afterLabel : beforeLabel}
-                draggable={false}
-              />
+              <div ref={afterSlotRef} className="compare-after-slot" />
+              {!afterCanvas && afterUrl && (
+                <img src={afterUrl} alt={afterLabel} draggable={false} />
+              )}
+              {!afterCanvas && !afterUrl && beforeUrl && (
+                <img src={beforeUrl} alt={beforeLabel} draggable={false} />
+              )}
             </div>
 
+            {/* Original on top, clipped to left */}
             {hasBefore && beforeUrl && (
               <div
                 className="compare-layer compare-reveal"

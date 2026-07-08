@@ -45,6 +45,9 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [afterUrl, setAfterUrl] = useState<string | null>(null);
+  const [afterCanvas, setAfterCanvas] = useState<HTMLCanvasElement | null>(
+    null,
+  );
   const [result, setResult] = useState<EnhanceResult | null>(null);
   const [job, setJob] = useState<UpscaleJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,6 +109,7 @@ export default function App() {
     setResult(null);
     setError(null);
     setAfter(null);
+    setAfterCanvas(null);
     setFullscreen(false);
 
     const isImage =
@@ -124,6 +128,7 @@ export default function App() {
   const clear = () => {
     setPreview(null);
     setAfter(null);
+    setAfterCanvas(null);
     setResult(null);
     setFile(null);
     setJob(null);
@@ -144,6 +149,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     setAfter(null);
+    setAfterCanvas(null);
     setResult(null);
 
     setJob({
@@ -175,8 +181,14 @@ export default function App() {
 
       setAfter(enhanced.objectUrl);
       setResult(enhanced);
+      if (
+        "liveCanvas" in enhanced &&
+        enhanced.liveCanvas instanceof HTMLCanvasElement
+      ) {
+        setAfterCanvas(enhanced.liveCanvas);
+      }
 
-      // Free.upscaler style compare: left = bilinear 2× original, right = AI 2×
+      // Free.upscaler style: left = bilinear 2× original, right = AI
       if (
         "compareBeforeUrl" in enhanced &&
         typeof enhanced.compareBeforeUrl === "string" &&
@@ -278,6 +290,7 @@ export default function App() {
               <CompareSlider
                 beforeUrl={previewUrl}
                 afterUrl={afterUrl}
+                afterCanvas={afterCanvas}
                 compact
               />
 
@@ -443,6 +456,7 @@ export default function App() {
             <CompareSlider
               beforeUrl={previewUrl}
               afterUrl={afterUrl}
+              afterCanvas={afterCanvas}
               compact
               className="fs-track"
             />

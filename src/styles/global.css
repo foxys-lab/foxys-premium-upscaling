@@ -585,6 +585,18 @@ code {
   z-index: 1;
 }
 
+.compare-after-slot {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.compare-after-slot canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
+
 /* Original revealed on the left by width % */
 .compare-reveal {
   z-index: 2;

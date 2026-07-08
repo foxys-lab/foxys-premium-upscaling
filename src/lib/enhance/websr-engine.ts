@@ -1,12 +1,13 @@
 /**
- * WebSR Anime4K CNN — free.upscaler engine.
+ * WebSR Anime4K CNN (free.upscaler.video engine).
  *
- * Dark-screen root cause: capturing a WebGPU canvas that was never presented
- * (off-screen 0-opacity / wrong size) often returns solid black in Chrome.
+ * Black-right-panel bug: snapshotting WebGPU swapchain canvases often returns
+ * solid black. free.upscaler avoids this by *displaying the WebGPU canvas live*.
  *
- * Fix: present the canvas on-screen at native pixel size (opacity ~0), wait for
- * GPU + 2 animation frames, then convertToBlob. Never call websr.destroy()
- * (it kills the GPUDevice).
+ * We do both:
+ * 1) Keep the painted WebGPU canvas for on-screen display
+ * 2) Copy via createImageBitmap → bitmaprenderer → 2d (Chromium-safe)
+ * 3) Never call websr.destroy() (destroys GPUDevice)
  */
 
 import type { ProgressCb } from "./webgl";
@@ -40,6 +41,15 @@ declare global {
 let WebSRClass: WebSRStatic | null = null;
 let device: GPUDevice | null = null;
 
+/** Keep last live WebGPU canvas so UI can mount it if blob copy fails. */
+let lastLiveCanvas: HTMLCanvasElement | null = null;
+
+export function takeLastLiveCanvas(): HTMLCanvasElement | null {
+  const c = lastLiveCanvas;
+  lastLiveCanvas = null;
+  return c;
+}
+
 function resolveWebSR(mod: unknown): WebSRStatic | null {
   if (!mod) return null;
   const m = mod as Record<string, unknown>;
@@ -62,7 +72,7 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
     console.warn("import(@websr/websr) failed", e);
   }
 
-  if (window.WebSR && typeof window.WebSR.initWebGPU === "function") {
+  if (window.WebSR?.initWebGPU) {
     WebSRClass = window.WebSR;
     return WebSRClass;
   }
@@ -85,7 +95,7 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
         );
         setTimeout(() => {
           if (window.WebSR) resolve();
-          else reject(new Error("WebSR global missing after script"));
+          else reject(new Error("WebSR global missing"));
         }, 4000);
       }
       return;
@@ -100,9 +110,7 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
   });
 
   const fromWindow = resolveWebSR(window.WebSR);
-  if (!fromWindow) {
-    throw new Error("WebSR AI library did not expose window.WebSR");
-  }
+  if (!fromWindow) throw new Error("WebSR global not found");
   WebSRClass = fromWindow;
   return fromWindow;
 }
@@ -120,9 +128,7 @@ async function getDevice(WebSR: WebSRStatic): Promise<GPUDevice> {
     throw new Error("No WebGPU — use desktop Chrome or Edge.");
   }
   const gpu = await WebSR.initWebGPU();
-  if (!gpu) {
-    throw new Error("WebGPU device failed — check chrome://gpu");
-  }
+  if (!gpu) throw new Error("WebGPU device failed — check chrome://gpu");
   device = gpu;
   try {
     gpu.lost.then(() => {
@@ -146,64 +152,55 @@ export async function isWebSRAvailable(): Promise<boolean> {
   }
 }
 
-function meanLuma(canvas: HTMLCanvasElement): number {
+function sampleStats(canvas: HTMLCanvasElement): { mean: number; max: number } {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return 0;
-  const { width: w, height: h } = canvas;
-  const step = Math.max(1, Math.floor(Math.min(w, h) / 32));
+  if (!ctx) return { mean: 0, max: 0 };
+  const w = canvas.width;
+  const h = canvas.height;
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 24));
   const data = ctx.getImageData(0, 0, w, h).data;
   let sum = 0;
+  let max = 0;
   let n = 0;
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
       const i = (y * w + x) * 4;
-      sum += (data[i]! + data[i + 1]! + data[i + 2]!) / 3;
+      const yv = (data[i]! + data[i + 1]! + data[i + 2]!) / 3;
+      sum += yv;
+      max = Math.max(max, yv);
       n++;
     }
   }
-  return n ? sum / n : 0;
+  return { mean: n ? sum / n : 0, max };
 }
 
 /**
- * Present WebGPU canvas on-screen (nearly invisible) then snapshot.
- * Offscreen / opacity-0 canvases often snapshot as pure black in Chrome.
+ * Copy WebGPU canvas → 2D canvas using ImageBitmap transfer (Chromium-safe).
  */
-async function capturePresentedWebGPUCanvas(
-  canvas: HTMLCanvasElement,
+async function copyWebGPUTo2D(
+  webgpuCanvas: HTMLCanvasElement,
   gpu: GPUDevice,
 ): Promise<HTMLCanvasElement> {
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = webgpuCanvas.width;
+  const h = webgpuCanvas.height;
 
-  // Present at true pixel size (1 CSS px = 1 canvas px) so browser composites correctly
-  const prev = {
-    position: canvas.style.position,
-    left: canvas.style.left,
-    top: canvas.style.top,
-    opacity: canvas.style.opacity,
-    zIndex: canvas.style.zIndex,
-    pointerEvents: canvas.style.pointerEvents,
-    width: canvas.style.width,
-    height: canvas.style.height,
-  };
-
-  canvas.style.position = "fixed";
-  canvas.style.left = "0";
-  canvas.style.top = "0";
-  canvas.style.opacity = "0.01";
-  canvas.style.zIndex = "2147483646";
-  canvas.style.pointerEvents = "none";
-  // IMPORTANT: match buffer size so no scaling/blur/black
-  canvas.style.width = `${w}px`;
-  canvas.style.height = `${h}px`;
+  // Present on-screen at 1:1 CSS pixels so the compositor has real content
+  webgpuCanvas.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    `width:${w}px`,
+    `height:${h}px`,
+    "opacity:0.02",
+    "z-index:2147483646",
+    "pointer-events:none",
+  ].join(";");
 
   try {
     await gpu.queue.onSubmittedWorkDone();
   } catch {
     /* ignore */
   }
-
-  // Two frames for presentation
   await new Promise<void>((r) =>
     requestAnimationFrame(() => requestAnimationFrame(() => r())),
   );
@@ -211,58 +208,73 @@ async function capturePresentedWebGPUCanvas(
   const out = document.createElement("canvas");
   out.width = w;
   out.height = h;
-  const ctx = out.getContext("2d", { alpha: false });
-  if (!ctx) throw new Error("2D context missing");
-  ctx.imageSmoothingEnabled = false;
 
-  const c = canvas as HTMLCanvasElement & {
-    convertToBlob?: (o?: { type?: string }) => Promise<Blob>;
-  };
+  // Method A: bitmaprenderer transfer (best for WebGPU → CPU)
+  try {
+    const bmp = await createImageBitmap(webgpuCanvas);
+    const br = out.getContext("bitmaprenderer") as ImageBitmapRenderingContext | null;
+    if (br && "transferFromImageBitmap" in br) {
+      br.transferFromImageBitmap(bmp);
+      // Move pixels to a 2d canvas (bitmaprenderer can't toBlob on all browsers)
+      const out2 = document.createElement("canvas");
+      out2.width = w;
+      out2.height = h;
+      const ctx2 = out2.getContext("2d", { alpha: false });
+      if (!ctx2) throw new Error("2d missing");
+      ctx2.imageSmoothingEnabled = false;
+      // draw from bitmaprenderer canvas via another bitmap
+      const bmp2 = await createImageBitmap(out);
+      ctx2.drawImage(bmp2, 0, 0);
+      bmp2.close();
+      const stats = sampleStats(out2);
+      if (stats.max > 8) return out2;
+    } else {
+      bmp.close();
+    }
+  } catch (e) {
+    console.warn("bitmaprenderer path failed", e);
+  }
 
-  let ok = false;
-  if (typeof c.convertToBlob === "function") {
-    try {
+  // Method B: convertToBlob
+  try {
+    const c = webgpuCanvas as HTMLCanvasElement & {
+      convertToBlob?: (o?: { type?: string }) => Promise<Blob>;
+    };
+    if (typeof c.convertToBlob === "function") {
       const blob = await c.convertToBlob({ type: "image/png" });
       const bmp = await createImageBitmap(blob);
+      const ctx = out.getContext("2d", { alpha: false });
+      if (!ctx) throw new Error("2d missing");
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(bmp, 0, 0);
       bmp.close();
-      ok = true;
-    } catch (e) {
-      console.warn("convertToBlob failed", e);
+      const stats = sampleStats(out);
+      if (stats.max > 8) return out;
+    }
+  } catch (e) {
+    console.warn("convertToBlob path failed", e);
+  }
+
+  // Method C: direct drawImage
+  {
+    const ctx = out.getContext("2d", { alpha: false });
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(webgpuCanvas, 0, 0, w, h);
+      const stats = sampleStats(out);
+      if (stats.max > 8) return out;
     }
   }
 
-  if (!ok) {
-    try {
-      const bmp = await createImageBitmap(canvas);
-      ctx.drawImage(bmp, 0, 0, w, h);
-      bmp.close();
-      ok = true;
-    } catch (e) {
-      console.warn("createImageBitmap failed", e);
-    }
-  }
-
-  if (!ok) {
-    // Last resort: drawImage of the live canvas
-    ctx.drawImage(canvas, 0, 0, w, h);
-  }
-
-  // Restore styles
-  Object.assign(canvas.style, prev);
-
-  const luma = meanLuma(out);
-  if (luma < 2) {
-    throw new Error(
-      "AI produced a black frame (WebGPU capture). Retry, or use a smaller image.",
-    );
-  }
-
-  return out;
+  throw new Error(
+    "Could not copy AI canvas (still black). This is a browser WebGPU readback limit — try Chrome latest.",
+  );
 }
 
 export interface WebSREnhanceResult {
   canvas: HTMLCanvasElement;
+  /** Live WebGPU canvas (for on-screen display if needed). */
+  liveCanvas: HTMLCanvasElement;
   width: number;
   height: number;
   network: string;
@@ -306,11 +318,6 @@ export async function enhanceWithWebSR(
     workH = bitmap.height;
   }
 
-  if (workW < 2 || workH < 2) {
-    bitmap.close();
-    throw new Error("Image too small");
-  }
-
   const bilinearCompare = document.createElement("canvas");
   bilinearCompare.width = workW * 2;
   bilinearCompare.height = workH * 2;
@@ -323,24 +330,22 @@ export async function enhanceWithWebSR(
   }
 
   const attempts: { network: NetworkName; weights: unknown }[] = [
-    { network: "anime4k/cnn-2x-m", weights: weights2xM }, // medium first (stable, like free.upscaler default)
+    { network: "anime4k/cnn-2x-m", weights: weights2xM },
     { network: "anime4k/cnn-2x-l", weights: weights2xL },
   ];
 
   let lastErr: unknown;
 
   for (const a of attempts) {
+    // Visible (tiny opacity) full-size canvas — required for non-black readback
     const canvas = document.createElement("canvas");
     canvas.width = workW * 2;
     canvas.height = workH * 2;
+    canvas.setAttribute("data-foxy-ai", "1");
     document.body.appendChild(canvas);
 
     try {
-      onProgress?.({
-        phase: `Real AI: ${a.network}`,
-        progress: 45,
-      });
-
+      onProgress?.({ phase: `Real AI: ${a.network}`, progress: 45 });
       const gpuNow = await getDevice(WebSR);
 
       const websr = new WebSR({
@@ -351,19 +356,25 @@ export async function enhanceWithWebSR(
         resolution: { width: workW, height: workH },
       });
 
-      // Render twice — first frame sometimes presents empty on some GPUs
+      // Double render — first frame can be empty on some GPUs
       await websr.render(bitmap);
       await websr.render(bitmap);
 
-      onProgress?.({ phase: "Capturing AI image…", progress: 80 });
-      const out = await capturePresentedWebGPUCanvas(canvas, gpuNow);
+      onProgress?.({ phase: "Copying AI pixels…", progress: 78 });
+      const out = await copyWebGPUTo2D(canvas, gpuNow);
 
-      canvas.remove();
+      // Keep live canvas available (free.upscaler style display)
+      lastLiveCanvas = canvas;
+      // Don't remove live canvas yet — App may mount it; hide off-screen
+      canvas.style.cssText =
+        "position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;";
+
       bitmap.close();
-
       onProgress?.({ phase: "Real AI complete", progress: 100 });
+
       return {
         canvas: out,
+        liveCanvas: canvas,
         width: out.width,
         height: out.height,
         network: a.network,

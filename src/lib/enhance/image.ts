@@ -7,6 +7,8 @@ export interface ImageEnhanceResult {
   compareBeforeUrl: string;
   cropBeforeUrl: string;
   cropAfterUrl: string;
+  /** Live WebGPU canvas for display (avoids black blob when capture fails). */
+  liveCanvas?: HTMLCanvasElement;
   width: number;
   height: number;
   engine: "websr";
@@ -96,13 +98,22 @@ export async function enhanceImage(
   onProgress?.({ phase: "Encoding PNG…", progress: 90 });
   const blob = await canvasToBlob(result.canvas, "image/png");
   const objectUrl = URL.createObjectURL(blob);
-  const compareBeforeBlob = await canvasToBlob(result.bilinearCompare, "image/png");
+  const compareBeforeBlob = await canvasToBlob(
+    result.bilinearCompare,
+    "image/png",
+  );
   const compareBeforeUrl = URL.createObjectURL(compareBeforeBlob);
 
   const beforeImg = await loadImgFromUrl(compareBeforeUrl);
-  const afterImg = await loadImgFromUrl(objectUrl);
+  // Prefer 2d copy for crops; fall back to live canvas
+  let cropAfterUrl: string;
+  try {
+    const afterImg = await loadImgFromUrl(objectUrl);
+    cropAfterUrl = await centerCropUrl(afterImg);
+  } catch {
+    cropAfterUrl = await centerCropUrl(result.canvas);
+  }
   const cropBeforeUrl = await centerCropUrl(beforeImg);
-  const cropAfterUrl = await centerCropUrl(afterImg);
 
   onProgress?.({ phase: "Done — real AI", progress: 100 });
   return {
@@ -111,6 +122,7 @@ export async function enhanceImage(
     compareBeforeUrl,
     cropBeforeUrl,
     cropAfterUrl,
+    liveCanvas: result.liveCanvas,
     width: result.width,
     height: result.height,
     engine: "websr",

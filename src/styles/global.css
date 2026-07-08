@@ -607,18 +607,19 @@ code {
   display: block;
   width: 100%;
   height: 100%;
-  /* Cover fills the card like free.upscaler — no letterbox dead zones */
-  object-fit: cover;
+  /* contain keeps full frame sharp; cover was cropping + re-scaling soft */
+  object-fit: contain;
   object-position: center center;
   background: #0a0f1a;
   pointer-events: none;
   -webkit-user-drag: none;
+  image-rendering: auto;
 }
 
 .compare-reveal-inner img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center center;
 }
 
@@ -1194,7 +1195,9 @@ input[type="range"]:focus-visible,
   display: block;
   width: 100%;
   height: auto;
-  image-rendering: auto;
+  /* Keep crop crisp when displayed */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .detail-crops-row figcaption {

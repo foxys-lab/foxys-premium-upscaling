@@ -895,3 +895,62 @@ input[type="range"]:focus-visible,
   color: #334155;
   user-select: none;
 }
+
+/* —— Simple one-path workspace —— */
+.simple-workspace {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.simple-preview {
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0a0f1a;
+  max-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.simple-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+}
+
+.simple-file {
+  text-align: left;
+}
+
+.simple-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.simple-actions .dropzone-btn {
+  min-width: 200px;
+}
+
+.simple-done-note {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.simple-workspace .progress-panel {
+  margin-top: 0;
+  text-align: left;
+}
+
+.simple-workspace .notice {
+  text-align: left;
+}

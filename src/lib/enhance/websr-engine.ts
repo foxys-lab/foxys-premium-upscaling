@@ -278,7 +278,7 @@ export async function enhanceWithWebSR(
 ): Promise<WebSREnhanceResult> {
   onProgress?.({ phase: "Loading real AI (WebSR)…", progress: 6 });
   const WebSR = await loadWebSRClass();
-  const gpu = await getDevice(WebSR);
+  await getDevice(WebSR);
 
   onProgress?.({ phase: "Preparing image…", progress: 18 });
 

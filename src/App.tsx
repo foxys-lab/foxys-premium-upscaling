@@ -10,10 +10,7 @@ import {
   runDemoPipeline,
   type UpscaleJob,
 } from "./lib/job";
-import {
-  estimatePipelineCost,
-  type StageId,
-} from "./lib/pipeline";
+import { estimatePipelineCost, type StageId } from "./lib/pipeline";
 import {
   getPreset,
   pipelineFromStrengths,
@@ -28,6 +25,20 @@ import { ProgressPanel } from "./ui/ProgressPanel";
 import { StageControls } from "./ui/StageControls";
 
 const PRESET_STORAGE_KEY = "foxy-premium-upscaling-preset";
+
+function FoxMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 64 64" aria-hidden>
+      <path
+        d="M22 24l-6-8 10 4 6-6 6 6 10-4-6 8"
+        fill="#f97316"
+      />
+      <path d="M18 38c0-8 6-14 14-14s14 6 14 14v2H18v-2z" fill="#ea580c" />
+      <circle cx="28" cy="34" r="2" fill="#fff" />
+      <circle cx="36" cy="34" r="2" fill="#fff" />
+    </svg>
+  );
+}
 
 export default function App() {
   const [caps, setCaps] = useState<BrowserCapabilities | null>(null);
@@ -85,7 +96,13 @@ export default function App() {
 
   const cost = estimatePipelineCost(pipeline);
   const costLabel =
-    cost < 2 ? "Light" : cost < 4 ? "Moderate" : cost < 6 ? "Heavy" : "Very heavy";
+    cost < 2
+      ? "Light"
+      : cost < 4
+        ? "Moderate"
+        : cost < 6
+          ? "Heavy"
+          : "Very heavy";
 
   const selectPreset = (id: PresetId) => {
     setPresetId(id);
@@ -133,170 +150,208 @@ export default function App() {
   };
 
   const isVideo = job?.isVideo ?? true;
+  const hasFile = Boolean(file && job);
 
   return (
     <div className="app">
-      <header className="header">
-        <div>
-          <p className="eyebrow">Foxy · Local · Private · Premium</p>
-          <h1>Foxy&apos;s Premium Upscaling</h1>
-          <p className="lede">
-            Multi-stage enhancement — clean artifacts, super-resolve, calm
-            flicker — polished enough to trust with real clips. Nothing leaves
-            your device.
-          </p>
-        </div>
-        <CapabilityBadges caps={caps} />
-      </header>
+      {!hasFile ? (
+        /* ——— Landing: free.upscaler calm, Foxy brand ——— */
+        <main className="app-main">
+          <div className="landing">
+            <div className="landing-brand">
+              <FoxMark />
+              Foxy&apos;s Lab
+            </div>
 
-      <section className="card hero-card">
-        <DropZone
-          onFile={onFile}
-          fileName={file?.name}
-          disabled={busy}
-        />
+            <h1>Foxy&apos;s Premium Upscaling</h1>
 
-        {file && job && (
-          <div className="file-chip">
-            <div>
-              <strong>{job.fileName}</strong>
-              <span>
-                {formatBytes(job.fileSize)}
-                {job.isVideo ? " · video" : job.isImage ? " · image" : ""}
-                {" · "}
-                {job.mimeType}
+            <p className="landing-lede">
+              Upscale videos or images with AI for free, right in your browser —
+              no signups, installation, or config. Private on-device processing,
+              multi-stage quality, open source.
+            </p>
+
+            <DropZone onFile={onFile} disabled={busy} variant="landing" />
+
+            <div className="landing-trust">
+              <span className="trust-chip">
+                <strong>100%</strong> on your device
+              </span>
+              <span className="trust-chip">
+                <strong>No</strong> upload · no watermark
+              </span>
+              <span className="trust-chip">
+                <strong>Better</strong> presets &amp; pipeline
               </span>
             </div>
-            <button type="button" className="ghost sm" onClick={clear} disabled={busy}>
-              Clear
-            </button>
+
+            <div className="better-row">
+              <article>
+                <h4>Clean first</h4>
+                <p>Deblock artifacts before upscale — less mush on AI &amp; phone video.</p>
+              </article>
+              <article>
+                <h4>Smart presets</h4>
+                <p>Anime, AI-gen, Face, Max — not just Small / Medium / Large.</p>
+              </article>
+              <article>
+                <h4>Judge quality</h4>
+                <p>Before/after scrubber and stage controls after you pick a file.</p>
+              </article>
+            </div>
           </div>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <h3>Presets</h3>
-          <p>Start with a look, then fine-tune stages. Last choice is remembered.</p>
-        </div>
-        <PresetCards
-          presets={PRESETS}
-          value={presetId}
-          onChange={selectPreset}
-          disabled={busy}
-        />
-      </section>
-
-      <div className="layout-split">
-        <section className="card">
-          <StageControls
-            stages={pipeline.stages}
-            isVideo={isVideo}
-            disabled={busy}
-            onChange={onStageChange}
-          />
-          <div className="cost-row">
-            <span>
-              Relative load: <strong>{costLabel}</strong>
-            </span>
-            <span className="muted">Scale {scale}× · browser GPU</span>
+        </main>
+      ) : (
+        /* ——— Workspace: quality tools after file ——— */
+        <main className="app-main wide">
+          <div className="workspace-top">
+            <div>
+              <h1>Foxy&apos;s Premium Upscaling</h1>
+              <p className="sub">
+                Choose a quality look, tune stages, then enhance — still fully local.
+              </p>
+            </div>
+            <CapabilityBadges caps={caps} />
           </div>
-        </section>
 
-        <section className="card">
-          <CompareSlider
-            beforeUrl={previewUrl}
-            afterUrl={null}
-            emptyHint={
-              file && !previewUrl
-                ? "Video frame preview hooks up with WebCodecs next. Images show here immediately."
-                : "Drop an image to scrub original vs enhanced after processing."
-            }
-          />
-        </section>
-      </div>
+          <section className="card">
+            <div className="file-chip">
+              <div>
+                <strong>{job!.fileName}</strong>
+                <span>
+                  {formatBytes(job!.fileSize)}
+                  {job!.isVideo ? " · video" : job!.isImage ? " · image" : ""}
+                  {" · "}
+                  {job!.mimeType}
+                </span>
+              </div>
+              <div className="actions" style={{ marginTop: 0 }}>
+                <DropZone
+                  onFile={onFile}
+                  disabled={busy}
+                  variant="compact"
+                />
+                <button
+                  type="button"
+                  className="ghost sm"
+                  onClick={clear}
+                  disabled={busy}
+                >
+                  Start over
+                </button>
+              </div>
+            </div>
+          </section>
 
-      <section className="card action-card">
-        <div className="action-copy">
-          <h3>Run enhancement</h3>
-          <p>
-            Pipeline UI is live. Next: real WebGPU stages (see{" "}
-            <code>docs/quality-and-polish.md</code>). Preview a frame before long
-            videos once Q2 ships.
-          </p>
-        </div>
-        <div className="actions">
-          <button
-            type="button"
-            className="primary"
-            disabled={!file || !ready || busy}
-            onClick={start}
-          >
-            {busy ? "Enhancing…" : "Enhance"}
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            disabled={!file || busy}
-            onClick={clear}
-          >
-            Reset
-          </button>
-        </div>
-        <ProgressPanel job={job} />
+          <section className="card">
+            <div className="section-head">
+              <h3>Quality preset</h3>
+              <p>Start here — then fine-tune stages if you want.</p>
+            </div>
+            <PresetCards
+              presets={PRESETS}
+              value={presetId}
+              onChange={selectPreset}
+              disabled={busy}
+            />
+          </section>
 
-        {!ready && caps && (
-          <div className="notice warn">
-            <strong>Browser not ready for local AI.</strong> Use latest Chrome or
-            Edge on desktop (WebGPU + WebCodecs).{" "}
-            <span className="muted">{caps.details.join(" · ")}</span>
+          <div className="layout-split">
+            <section className="card">
+              <StageControls
+                stages={pipeline.stages}
+                isVideo={isVideo}
+                disabled={busy}
+                onChange={onStageChange}
+              />
+              <div className="cost-row">
+                <span>
+                  Relative load: <strong>{costLabel}</strong>
+                </span>
+                <span className="muted">Scale {scale}× · browser GPU</span>
+              </div>
+            </section>
+
+            <section className="card">
+              <CompareSlider
+                beforeUrl={previewUrl}
+                afterUrl={null}
+                emptyHint={
+                  !previewUrl
+                    ? "Video frame preview ships next. Images appear here for compare."
+                    : "Enhanced result will appear on the right after processing."
+                }
+              />
+            </section>
           </div>
-        )}
-      </section>
 
-      <section className="pillars">
-        <article>
-          <h4>Better quality</h4>
-          <p>
-            Deblock before upscale, edge clarity after, temporal calm on video,
-            optional face refine — not one mushy pass.
-          </p>
-        </article>
-        <article>
-          <h4>Real polish</h4>
-          <p>
-            Preset cards, stage sliders, comparison scrubber, stage-aware
-            progress. Calm pro-tool UI, no mid-job guilt upsells.
-          </p>
-        </article>
-        <article>
-          <h4>Still free & private</h4>
-          <p>
-            MIT on GitHub. Files stay on-device. Match free.upscaler friction;
-            beat it on output and craft.
-          </p>
-        </article>
-      </section>
+          <section className="card">
+            <div className="action-copy">
+              <h3>Enhance</h3>
+              <p>
+                Multi-stage pipeline UI is ready. Real WebGPU quality passes are
+                next — demo progress runs stages so you can feel the flow.
+              </p>
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={!ready || busy}
+                onClick={start}
+              >
+                {busy ? "Enhancing…" : "Enhance"}
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={busy}
+                onClick={clear}
+              >
+                Cancel
+              </button>
+            </div>
+            <ProgressPanel job={job} />
 
-      <footer className="footer">
-        <span>Foxy&apos;s Premium Upscaling · MIT</span>
-        <span>
-          <a
-            href="https://github.com/foxys-lab/foxys-premium-upscaling"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
-          {" · "}
+            {!ready && caps && (
+              <div className="notice warn">
+                <strong>Browser not ready.</strong> Use latest Chrome or Edge on
+                desktop (WebGPU + WebCodecs).{" "}
+                <span className="muted">{caps.details.join(" · ")}</span>
+              </div>
+            )}
+          </section>
+        </main>
+      )}
+
+      <footer className="site-footer">
+        <div className="site-footer-inner">
           <a
             href="https://github.com/foxys-lab/foxys-premium-upscaling/blob/main/docs/quality-and-polish.md"
             target="_blank"
             rel="noreferrer"
           >
-            Quality plan
+            How it works
           </a>
-        </span>
+          <span className="sep">|</span>
+          <a
+            href="https://github.com/foxys-lab/foxys-premium-upscaling"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Source on GitHub
+          </a>
+          <span className="sep">|</span>
+          <a
+            href="https://github.com/foxys-lab/foxys-premium-upscaling/issues"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Feedback
+          </a>
+          <span className="sep">|</span>
+          <span>© Foxy&apos;s Lab · MIT · Free forever locally</span>
+        </div>
       </footer>
     </div>
   );

@@ -5,11 +5,16 @@ const ACCEPT =
 
 interface DropZoneProps {
   disabled?: boolean;
-  fileName?: string | null;
+  /** Landing = free.upscaler-style hero. Compact = workspace header swap. */
+  variant?: "landing" | "compact";
   onFile: (file: File) => void;
 }
 
-export function DropZone({ disabled, fileName, onFile }: DropZoneProps) {
+export function DropZone({
+  disabled,
+  variant = "landing",
+  onFile,
+}: DropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragover, setDragover] = useState(false);
 
@@ -21,6 +26,10 @@ export function DropZone({ disabled, fileName, onFile }: DropZoneProps) {
     [onFile],
   );
 
+  const openPicker = () => {
+    if (!disabled) inputRef.current?.click();
+  };
+
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragover(false);
@@ -28,19 +37,32 @@ export function DropZone({ disabled, fileName, onFile }: DropZoneProps) {
     handleFiles(e.dataTransfer.files);
   };
 
+  if (variant === "compact") {
+    return (
+      <>
+        <button
+          type="button"
+          className="ghost sm"
+          disabled={disabled}
+          onClick={openPicker}
+        >
+          Replace file
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT}
+          disabled={disabled}
+          onChange={(e) => handleFiles(e.target.files)}
+          hidden
+        />
+      </>
+    );
+  }
+
   return (
     <div
-      className={`dropzone${dragover ? " dragover" : ""}${fileName ? " has-file" : ""}`}
-      role="button"
-      tabIndex={0}
-      aria-disabled={disabled}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          inputRef.current?.click();
-        }
-      }}
-      onClick={() => !disabled && inputRef.current?.click()}
+      className={`drop-panel${dragover ? " dragover" : ""}`}
       onDragOver={(e) => {
         e.preventDefault();
         if (!disabled) setDragover(true);
@@ -48,33 +70,16 @@ export function DropZone({ disabled, fileName, onFile }: DropZoneProps) {
       onDragLeave={() => setDragover(false)}
       onDrop={onDrop}
     >
-      <div className="dropzone-icon" aria-hidden>
-        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-          <rect
-            x="4"
-            y="8"
-            width="32"
-            height="24"
-            rx="4"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          />
-          <path
-            d="M12 26l6-8 4 5 3-3 5 6"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="27" cy="15" r="2.2" fill="currentColor" />
-        </svg>
-      </div>
-      <h2>{fileName ? "Replace media" : "Drop video or image"}</h2>
-      <p>
-        {fileName
-          ? "Click or drop another file to swap"
-          : "MP4 · WebM · PNG · JPG — 100% on-device, never uploaded"}
-      </p>
+      <h2>Choose a video or image to upscale</h2>
+      <button
+        type="button"
+        className="dropzone-btn"
+        disabled={disabled}
+        onClick={openPicker}
+      >
+        Choose a video or image file
+      </button>
+      <p className="drop-hint">Or drag and drop · MP4, WebM, PNG, JPG</p>
       <input
         ref={inputRef}
         type="file"

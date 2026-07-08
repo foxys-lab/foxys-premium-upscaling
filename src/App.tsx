@@ -11,11 +11,50 @@ import {
   type UpscaleJob,
 } from "./lib/job";
 import { pipelineFromPreset } from "./lib/presets";
+import { CompareSlider } from "./ui/CompareSlider";
 import { DropZone } from "./ui/DropZone";
 import { ProgressPanel } from "./ui/ProgressPanel";
 
 /** One automatic quality path — no user tuning. */
 const AUTO_PRESET = "balanced" as const;
+
+/** Lightweight demo "after" so the compare scrubber is useful until real WebGPU ships. */
+async function makeDemoEnhancedUrl(sourceUrl: string): Promise<string> {
+  const img = new Image();
+  img.decoding = "async";
+  img.src = sourceUrl;
+  await img.decode();
+
+  const scale = 2;
+  const w = Math.min(img.naturalWidth * scale, 1920);
+  const h = Math.round((img.naturalHeight / img.naturalWidth) * w);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return sourceUrl;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, w, h);
+  // Mild clarity pass (placeholder for real SR)
+  ctx.filter = "contrast(1.06) saturate(1.04)";
+  ctx.drawImage(canvas, 0, 0);
+  ctx.filter = "none";
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Could not build preview"));
+          return;
+        }
+        resolve(URL.createObjectURL(blob));
+      },
+      "image/png",
+    );
+  });
+}
 
 function FoxMark() {
   return (
@@ -32,6 +71,7 @@ export default function App() {
   const [caps, setCaps] = useState<BrowserCapabilities | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [afterUrl, setAfterUrl] = useState<string | null>(null);
   const [job, setJob] = useState<UpscaleJob | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -51,6 +91,12 @@ export default function App() {
     };
   }, [previewUrl]);
 
+  useEffect(() => {
+    return () => {
+      if (afterUrl) URL.revokeObjectURL(afterUrl);
+    };
+  }, [afterUrl]);
+
   const ready = useMemo(
     () => (caps ? canRunLocalUpscale(caps) : false),
     [caps],
@@ -60,15 +106,19 @@ export default function App() {
 
   const onFile = (f: File) => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (afterUrl) URL.revokeObjectURL(afterUrl);
     const url = f.type.startsWith("image/") ? URL.createObjectURL(f) : null;
     setPreviewUrl(url);
+    setAfterUrl(null);
     setFile(f);
     setJob(createJobFromFile(f, AUTO_PRESET));
   };
 
   const clear = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (afterUrl) URL.revokeObjectURL(afterUrl);
     setPreviewUrl(null);
+    setAfterUrl(null);
     setFile(null);
     setJob(null);
     setBusy(false);
@@ -79,12 +129,27 @@ export default function App() {
     if (!ready) return;
 
     setBusy(true);
+    if (afterUrl) {
+      URL.revokeObjectURL(afterUrl);
+      setAfterUrl(null);
+    }
     const base = { ...job, presetId: AUTO_PRESET };
     setJob(base);
 
     await runDemoPipeline(base, pipeline, (partial) => {
       setJob((prev) => (prev ? { ...prev, ...partial } : prev));
     });
+
+    // Image: build a compare "after" so scrubber works; video compare comes with WebCodecs.
+    if (previewUrl && file.type.startsWith("image/")) {
+      try {
+        const enhanced = await makeDemoEnhancedUrl(previewUrl);
+        setAfterUrl(enhanced);
+      } catch {
+        /* keep after empty */
+      }
+    }
+
     setBusy(false);
   };
 
@@ -126,12 +191,6 @@ export default function App() {
             </>
           ) : (
             <div className="simple-workspace">
-              {previewUrl && (
-                <div className="simple-preview">
-                  <img src={previewUrl} alt="Selected media preview" />
-                </div>
-              )}
-
               <div className="file-chip simple-file">
                 <div>
                   <strong>{job!.fileName}</strong>
@@ -150,28 +209,37 @@ export default function App() {
                 </button>
               </div>
 
+              <div className="simple-compare">
+                <CompareSlider
+                  beforeUrl={previewUrl}
+                  afterUrl={afterUrl}
+                  emptyHint={
+                    previewUrl
+                      ? "Press Enhance — then drag to compare original vs result."
+                      : job!.isVideo
+                        ? "Video compare frames ship with WebGPU. Enhance still runs the quality pipeline."
+                        : "Choose an image to compare quality here."
+                  }
+                />
+              </div>
+
               <div className="simple-actions">
                 <button
                   type="button"
                   className="dropzone-btn"
-                  disabled={!ready || busy || done}
+                  disabled={!ready || busy}
                   onClick={start}
                 >
-                  {busy
-                    ? "Enhancing…"
-                    : done
-                      ? "Done"
-                      : "Enhance"}
+                  {busy ? "Enhancing…" : done ? "Enhance again" : "Enhance"}
                 </button>
               </div>
 
               <ProgressPanel job={job} />
 
-              {done && (
+              {done && afterUrl && (
                 <p className="simple-done-note">
-                  Demo complete — automatic quality pipeline is ready. Real
-                  WebGPU enhancement ships next; your file never left this
-                  device.
+                  Drag the slider to compare. Real WebGPU super-resolution comes
+                  next — this preview is automatic and local only.
                 </p>
               )}
 

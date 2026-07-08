@@ -906,23 +906,21 @@ input[type="range"]:focus-visible,
   gap: 1rem;
 }
 
-.simple-preview {
+.simple-compare {
   width: 100%;
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #0a0f1a;
-  max-height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  text-align: left;
 }
 
-.simple-preview img {
-  display: block;
-  max-width: 100%;
-  max-height: 280px;
-  object-fit: contain;
+.simple-compare .compare .section-head h3 {
+  text-align: left;
+}
+
+.simple-compare .compare .section-head p {
+  text-align: left;
+}
+
+.simple-workspace {
+  max-width: 560px;
 }
 
 .simple-file {

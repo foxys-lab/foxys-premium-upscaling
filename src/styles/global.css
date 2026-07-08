@@ -926,10 +926,17 @@ input[type="range"]:focus-visible,
 .simple-actions {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .simple-actions .dropzone-btn {
-  min-width: 200px;
+  min-width: 160px;
+}
+
+.dropzone-btn.download-btn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 8px 28px rgba(16, 185, 129, 0.3);
 }
 
 .simple-done-note {

@@ -4,6 +4,7 @@ export interface BrowserCapabilities {
   webgpu: CapabilityStatus;
   webcodecs: CapabilityStatus;
   webgl: CapabilityStatus;
+  mediaRecorder: CapabilityStatus;
   details: string[];
 }
 
@@ -28,7 +29,11 @@ function hasWebGL(): boolean {
   }
 }
 
-/** Probe browser features required for client-side upscaling. */
+function hasMediaRecorder(): boolean {
+  return typeof MediaRecorder !== "undefined";
+}
+
+/** Probe browser features for client-side upscaling. */
 export async function detectCapabilities(): Promise<BrowserCapabilities> {
   const details: string[] = [];
 
@@ -38,40 +43,46 @@ export async function detectCapabilities(): Promise<BrowserCapabilities> {
       const adapter = await navigator.gpu.requestAdapter();
       if (adapter) {
         webgpu = "ok";
-        details.push("WebGPU adapter available");
+        details.push("WebGPU available (future models)");
       } else {
         webgpu = "warn";
-        details.push("navigator.gpu present but no adapter");
+        details.push("WebGPU present but no adapter");
       }
     } catch (err) {
       webgpu = "warn";
       details.push(
-        `WebGPU request failed: ${err instanceof Error ? err.message : String(err)}`,
+        `WebGPU: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   } else {
-    details.push("WebGPU not supported in this browser");
-  }
-
-  const webcodecs: CapabilityStatus = hasWebCodecs() ? "ok" : "bad";
-  if (webcodecs === "ok") {
-    details.push("WebCodecs available");
-  } else {
-    details.push("WebCodecs missing — video encode/decode will fail");
+    details.push("WebGPU not required — using WebGL pipeline");
   }
 
   const webgl: CapabilityStatus = hasWebGL() ? "ok" : "bad";
   if (webgl === "ok") {
-    details.push("WebGL available (fallback path)");
+    details.push("WebGL ready for 2× enhance");
+  } else {
+    details.push("WebGL missing — enhancement unavailable");
   }
 
-  return { webgpu, webcodecs, webgl, details };
+  const webcodecs: CapabilityStatus = hasWebCodecs() ? "ok" : "warn";
+  if (webcodecs === "ok") details.push("WebCodecs available");
+
+  const mediaRecorder: CapabilityStatus = hasMediaRecorder() ? "ok" : "warn";
+  if (mediaRecorder === "ok") {
+    details.push("MediaRecorder ready for video export");
+  } else {
+    details.push("MediaRecorder missing — video export limited");
+  }
+
+  return { webgpu, webcodecs, webgl, mediaRecorder, details };
 }
 
+/** Images need WebGL; video also needs MediaRecorder. */
 export function canRunLocalUpscale(caps: BrowserCapabilities): boolean {
-  // MVP: require WebCodecs + (WebGPU or WebGL)
-  return (
-    caps.webcodecs === "ok" &&
-    (caps.webgpu === "ok" || caps.webgl === "ok")
-  );
+  return caps.webgl === "ok";
+}
+
+export function canEnhanceVideo(caps: BrowserCapabilities): boolean {
+  return caps.webgl === "ok" && caps.mediaRecorder === "ok";
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  canEnhanceVideo,
   canRunLocalUpscale,
   detectCapabilities,
   type BrowserCapabilities,
@@ -7,54 +8,16 @@ import {
 import {
   createJobFromFile,
   formatBytes,
-  runDemoPipeline,
   type UpscaleJob,
 } from "./lib/job";
-import { pipelineFromPreset } from "./lib/presets";
+import {
+  downloadBlob,
+  enhanceMedia,
+  type EnhanceResult,
+} from "./lib/enhance";
 import { CompareSlider } from "./ui/CompareSlider";
 import { DropZone } from "./ui/DropZone";
 import { ProgressPanel } from "./ui/ProgressPanel";
-
-/** One automatic quality path — no user tuning. */
-const AUTO_PRESET = "balanced" as const;
-
-/** Lightweight demo "after" so the compare scrubber is useful until real WebGPU ships. */
-async function makeDemoEnhancedUrl(sourceUrl: string): Promise<string> {
-  const img = new Image();
-  img.decoding = "async";
-  img.src = sourceUrl;
-  await img.decode();
-
-  const scale = 2;
-  const w = Math.min(img.naturalWidth * scale, 1920);
-  const h = Math.round((img.naturalHeight / img.naturalWidth) * w);
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return sourceUrl;
-
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(img, 0, 0, w, h);
-  // Mild clarity pass (placeholder for real SR)
-  ctx.filter = "contrast(1.06) saturate(1.04)";
-  ctx.drawImage(canvas, 0, 0);
-  ctx.filter = "none";
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Could not build preview"));
-          return;
-        }
-        resolve(URL.createObjectURL(blob));
-      },
-      "image/png",
-    );
-  });
-}
 
 function FoxMark() {
   return (
@@ -72,8 +35,10 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [afterUrl, setAfterUrl] = useState<string | null>(null);
+  const [result, setResult] = useState<EnhanceResult | null>(null);
   const [job, setJob] = useState<UpscaleJob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,16 +67,25 @@ export default function App() {
     [caps],
   );
 
-  const pipeline = useMemo(() => pipelineFromPreset(AUTO_PRESET), []);
-
   const onFile = (f: File) => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     if (afterUrl) URL.revokeObjectURL(afterUrl);
-    const url = f.type.startsWith("image/") ? URL.createObjectURL(f) : null;
-    setPreviewUrl(url);
+    setResult(null);
+    setError(null);
+
+    const isImage =
+      f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+    const url = isImage ? URL.createObjectURL(f) : null;
+    // Videos: object URL for potential future thumb; compare uses frames later
+    const mediaUrl = url ?? URL.createObjectURL(f);
+
+    setPreviewUrl(isImage ? url : null);
+    // keep video object URL only if we need it - for video we revoke mediaUrl if not image
+    if (!isImage) URL.revokeObjectURL(mediaUrl);
+
     setAfterUrl(null);
     setFile(f);
-    setJob(createJobFromFile(f, AUTO_PRESET));
+    setJob(createJobFromFile(f));
   };
 
   const clear = () => {
@@ -119,42 +93,95 @@ export default function App() {
     if (afterUrl) URL.revokeObjectURL(afterUrl);
     setPreviewUrl(null);
     setAfterUrl(null);
+    setResult(null);
     setFile(null);
     setJob(null);
     setBusy(false);
+    setError(null);
   };
 
   const start = async () => {
-    if (!file || !job || busy) return;
+    if (!file || !job || busy || !caps) return;
     if (!ready) return;
 
+    if (job.isVideo && !canEnhanceVideo(caps)) {
+      setError("This browser cannot export video. Try Chrome or Edge.");
+      return;
+    }
+
     setBusy(true);
+    setError(null);
     if (afterUrl) {
       URL.revokeObjectURL(afterUrl);
       setAfterUrl(null);
     }
-    const base = { ...job, presetId: AUTO_PRESET };
-    setJob(base);
+    setResult(null);
 
-    await runDemoPipeline(base, pipeline, (partial) => {
-      setJob((prev) => (prev ? { ...prev, ...partial } : prev));
+    setJob({
+      ...job,
+      status: "running",
+      progress: 0,
+      stageLabel: "Starting",
+      message: "Preparing…",
     });
 
-    // Image: build a compare "after" so scrubber works; video compare comes with WebCodecs.
-    if (previewUrl && file.type.startsWith("image/")) {
-      try {
-        const enhanced = await makeDemoEnhancedUrl(previewUrl);
-        setAfterUrl(enhanced);
-      } catch {
-        /* keep after empty */
-      }
-    }
+    try {
+      const enhanced = await enhanceMedia(file, (p) => {
+        setJob((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "running",
+                progress: p.progress,
+                stageLabel: p.phase,
+                message: `${p.phase}…`,
+              }
+            : prev,
+        );
+      });
 
-    setBusy(false);
+      setAfterUrl(enhanced.objectUrl);
+      setResult(enhanced);
+      setJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "done",
+              progress: 100,
+              stageLabel: "Done",
+              message:
+                enhanced.kind === "image"
+                  ? `Enhanced to ${enhanced.width}×${enhanced.height}. Drag to compare, then download.`
+                  : `Enhanced video ${enhanced.width}×${enhanced.height}. Download when ready.`,
+            }
+          : prev,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "error",
+              progress: 0,
+              stageLabel: "Error",
+              message: msg,
+            }
+          : prev,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDownload = () => {
+    if (!result) return;
+    downloadBlob(result.blob, result.downloadName);
   };
 
   const hasFile = Boolean(file && job);
-  const done = job?.status === "done";
+  const done = job?.status === "done" && Boolean(result);
 
   return (
     <div className="app">
@@ -168,9 +195,8 @@ export default function App() {
           <h1>Foxy&apos;s Premium Upscaling</h1>
 
           <p className="landing-lede">
-            Upscale videos or images with AI for free, right in your browser —
-            no signups, no settings, no upload. Quality is handled
-            automatically on your device.
+            Upscale videos or images with AI-style enhancement in your browser —
+            free, private, automatic. Files never leave your device.
           </p>
 
           {!hasFile ? (
@@ -179,13 +205,13 @@ export default function App() {
 
               <div className="landing-trust">
                 <span className="trust-chip">
-                  <strong>One click</strong> — no quality knobs
+                  <strong>One click</strong> — no settings
                 </span>
                 <span className="trust-chip">
-                  <strong>100%</strong> on your device
+                  <strong>2×</strong> local enhance
                 </span>
                 <span className="trust-chip">
-                  <strong>No</strong> watermark
+                  <strong>No</strong> upload · no watermark
                 </span>
               </div>
             </>
@@ -209,19 +235,26 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="simple-compare">
-                <CompareSlider
-                  beforeUrl={previewUrl}
-                  afterUrl={afterUrl}
-                  emptyHint={
-                    previewUrl
-                      ? "Press Enhance — then drag to compare original vs result."
-                      : job!.isVideo
-                        ? "Video compare frames ship with WebGPU. Enhance still runs the quality pipeline."
-                        : "Choose an image to compare quality here."
-                  }
-                />
-              </div>
+              {(previewUrl || afterUrl) && (
+                <div className="simple-compare">
+                  <CompareSlider
+                    beforeUrl={previewUrl}
+                    afterUrl={afterUrl}
+                    emptyHint={
+                      job!.isVideo
+                        ? "Video: press Enhance, then download the result. Frame scrubber works best for images."
+                        : "Press Enhance, then drag to compare original vs enhanced."
+                    }
+                  />
+                </div>
+              )}
+
+              {job!.isVideo && !previewUrl && (
+                <p className="simple-done-note">
+                  Video selected. Enhancement runs fully on your device (2× +
+                  clarity). Output downloads as WebM.
+                </p>
+              )}
 
               <div className="simple-actions">
                 <button
@@ -232,21 +265,29 @@ export default function App() {
                 >
                   {busy ? "Enhancing…" : done ? "Enhance again" : "Enhance"}
                 </button>
+                {done && (
+                  <button
+                    type="button"
+                    className="dropzone-btn download-btn"
+                    onClick={onDownload}
+                  >
+                    Download
+                  </button>
+                )}
               </div>
 
               <ProgressPanel job={job} />
 
-              {done && afterUrl && (
-                <p className="simple-done-note">
-                  Drag the slider to compare. Real WebGPU super-resolution comes
-                  next — this preview is automatic and local only.
-                </p>
+              {error && (
+                <div className="notice warn">
+                  <strong>Could not enhance.</strong> {error}
+                </div>
               )}
 
               {!ready && caps && (
                 <div className="notice warn">
-                  <strong>Browser not ready.</strong> Use the latest Chrome or
-                  Edge on a computer.{" "}
+                  <strong>Browser not ready.</strong> WebGL is required. Use
+                  Chrome or Edge on a computer.{" "}
                   <span className="muted">{caps.details.join(" · ")}</span>
                 </div>
               )}
@@ -273,7 +314,7 @@ export default function App() {
             Feedback
           </a>
           <span className="sep">|</span>
-          <span>© Foxy&apos;s Lab · Free · Private · Automatic quality</span>
+          <span>© Foxy&apos;s Lab · Free · Private · On-device</span>
         </div>
       </footer>
     </div>

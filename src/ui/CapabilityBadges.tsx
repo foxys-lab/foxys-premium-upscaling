@@ -26,9 +26,9 @@ export function CapabilityBadges({
 
   return (
     <div className="badge-row" title={caps.details.join(" · ")}>
-      <Badge name="WebGPU" status={caps.webgpu} />
-      <Badge name="WebCodecs" status={caps.webcodecs} />
       <Badge name="WebGL" status={caps.webgl} />
+      <Badge name="Recorder" status={caps.mediaRecorder} />
+      <Badge name="WebGPU" status={caps.webgpu} />
     </div>
   );
 }

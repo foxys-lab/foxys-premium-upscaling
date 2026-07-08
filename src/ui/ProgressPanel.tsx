@@ -9,7 +9,7 @@ export function ProgressPanel({ job }: ProgressPanelProps) {
     return null;
   }
 
-  const running = job.status === "running" || job.status === "previewing";
+  const running = job.status === "running";
   const done = job.status === "done";
   const err = job.status === "error";
 

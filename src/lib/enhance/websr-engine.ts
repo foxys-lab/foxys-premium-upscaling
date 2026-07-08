@@ -1,12 +1,12 @@
 /**
- * Real Anime4K CNN via WebSR (free.upscaler.video engine).
+ * WebSR Anime4K CNN — free.upscaler engine.
  *
- * Load order:
- * 1) dynamic import('@websr/websr') — Vite-friendly
- * 2) classic script /vendor/websr.js — UMD global fallback
+ * Dark-screen root cause: capturing a WebGPU canvas that was never presented
+ * (off-screen 0-opacity / wrong size) often returns solid black in Chrome.
  *
- * Capture: canvas.convertToBlob() (correct for WebGPU), not CSS-scaled drawImage.
- * Never call websr.destroy() — it destroys the GPU device.
+ * Fix: present the canvas on-screen at native pixel size (opacity ~0), wait for
+ * GPU + 2 animation frames, then convertToBlob. Never call websr.destroy()
+ * (it kills the GPUDevice).
  */
 
 import type { ProgressCb } from "./webgl";
@@ -51,7 +51,6 @@ function resolveWebSR(mod: unknown): WebSRStatic | null {
 async function loadWebSRClass(): Promise<WebSRStatic> {
   if (WebSRClass) return WebSRClass;
 
-  // 1) ESM / CJS import through Vite
   try {
     const mod = await import("@websr/websr");
     const resolved = resolveWebSR(mod);
@@ -60,10 +59,9 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
       return resolved;
     }
   } catch (e) {
-    console.warn("import(@websr/websr) failed, trying script tag", e);
+    console.warn("import(@websr/websr) failed", e);
   }
 
-  // 2) UMD script tag
   if (window.WebSR && typeof window.WebSR.initWebGPU === "function") {
     WebSRClass = window.WebSR;
     return WebSRClass;
@@ -77,24 +75,21 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
       'script[data-foxy-websr="1"]',
     );
     if (prev) {
-      if (window.WebSR) {
-        resolve();
-        return;
+      if (window.WebSR) resolve();
+      else {
+        prev.addEventListener("load", () => resolve(), { once: true });
+        prev.addEventListener(
+          "error",
+          () => reject(new Error("WebSR script error")),
+          { once: true },
+        );
+        setTimeout(() => {
+          if (window.WebSR) resolve();
+          else reject(new Error("WebSR global missing after script"));
+        }, 4000);
       }
-      prev.addEventListener("load", () => resolve(), { once: true });
-      prev.addEventListener(
-        "error",
-        () => reject(new Error("WebSR script error")),
-        { once: true },
-      );
-      // timeout if already loaded without global
-      setTimeout(() => {
-        if (window.WebSR) resolve();
-        else reject(new Error("WebSR script present but global missing"));
-      }, 3000);
       return;
     }
-
     const s = document.createElement("script");
     s.src = src;
     s.async = true;
@@ -104,15 +99,9 @@ async function loadWebSRClass(): Promise<WebSRStatic> {
     document.head.appendChild(s);
   });
 
-  // UMD may expose WebSR or default
-  const fromWindow =
-    resolveWebSR(window.WebSR) ||
-    resolveWebSR((window as unknown as { default?: unknown }).default);
-
+  const fromWindow = resolveWebSR(window.WebSR);
   if (!fromWindow) {
-    throw new Error(
-      "WebSR AI library failed to load. Hard-refresh (Cmd+Shift+R) and try Chrome/Edge.",
-    );
+    throw new Error("WebSR AI library did not expose window.WebSR");
   }
   WebSRClass = fromWindow;
   return fromWindow;
@@ -128,15 +117,11 @@ async function getDevice(WebSR: WebSRStatic): Promise<GPUDevice> {
     }
   }
   if (!navigator.gpu) {
-    throw new Error(
-      "No WebGPU — open this site in desktop Chrome or Edge (not Safari).",
-    );
+    throw new Error("No WebGPU — use desktop Chrome or Edge.");
   }
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
-    throw new Error(
-      "WebGPU device unavailable. Update Chrome, or visit chrome://flags and enable WebGPU.",
-    );
+    throw new Error("WebGPU device failed — check chrome://gpu");
   }
   device = gpu;
   try {
@@ -161,20 +146,67 @@ export async function isWebSRAvailable(): Promise<boolean> {
   }
 }
 
-async function captureWebGPUCanvas(
+function meanLuma(canvas: HTMLCanvasElement): number {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return 0;
+  const { width: w, height: h } = canvas;
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 32));
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const i = (y * w + x) * 4;
+      sum += (data[i]! + data[i + 1]! + data[i + 2]!) / 3;
+      n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
+
+/**
+ * Present WebGPU canvas on-screen (nearly invisible) then snapshot.
+ * Offscreen / opacity-0 canvases often snapshot as pure black in Chrome.
+ */
+async function capturePresentedWebGPUCanvas(
   canvas: HTMLCanvasElement,
   gpu: GPUDevice,
 ): Promise<HTMLCanvasElement> {
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Present at true pixel size (1 CSS px = 1 canvas px) so browser composites correctly
+  const prev = {
+    position: canvas.style.position,
+    left: canvas.style.left,
+    top: canvas.style.top,
+    opacity: canvas.style.opacity,
+    zIndex: canvas.style.zIndex,
+    pointerEvents: canvas.style.pointerEvents,
+    width: canvas.style.width,
+    height: canvas.style.height,
+  };
+
+  canvas.style.position = "fixed";
+  canvas.style.left = "0";
+  canvas.style.top = "0";
+  canvas.style.opacity = "0.01";
+  canvas.style.zIndex = "2147483646";
+  canvas.style.pointerEvents = "none";
+  // IMPORTANT: match buffer size so no scaling/blur/black
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+
   try {
     await gpu.queue.onSubmittedWorkDone();
   } catch {
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    /* ignore */
   }
 
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w < 2 || h < 2) throw new Error("AI canvas has zero size");
+  // Two frames for presentation
+  await new Promise<void>((r) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => r())),
+  );
 
   const out = document.createElement("canvas");
   out.width = w;
@@ -183,25 +215,49 @@ async function captureWebGPUCanvas(
   if (!ctx) throw new Error("2D context missing");
   ctx.imageSmoothingEnabled = false;
 
-  // Best: convertToBlob (works with WebGPU canvases in Chromium)
   const c = canvas as HTMLCanvasElement & {
     convertToBlob?: (o?: { type?: string }) => Promise<Blob>;
   };
+
+  let ok = false;
   if (typeof c.convertToBlob === "function") {
     try {
       const blob = await c.convertToBlob({ type: "image/png" });
       const bmp = await createImageBitmap(blob);
       ctx.drawImage(bmp, 0, 0);
       bmp.close();
-      return out;
+      ok = true;
     } catch (e) {
-      console.warn("convertToBlob failed, trying createImageBitmap", e);
+      console.warn("convertToBlob failed", e);
     }
   }
 
-  const bmp = await createImageBitmap(canvas);
-  ctx.drawImage(bmp, 0, 0, w, h);
-  bmp.close();
+  if (!ok) {
+    try {
+      const bmp = await createImageBitmap(canvas);
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      ok = true;
+    } catch (e) {
+      console.warn("createImageBitmap failed", e);
+    }
+  }
+
+  if (!ok) {
+    // Last resort: drawImage of the live canvas
+    ctx.drawImage(canvas, 0, 0, w, h);
+  }
+
+  // Restore styles
+  Object.assign(canvas.style, prev);
+
+  const luma = meanLuma(out);
+  if (luma < 2) {
+    throw new Error(
+      "AI produced a black frame (WebGPU capture). Retry, or use a smaller image.",
+    );
+  }
+
   return out;
 }
 
@@ -222,12 +278,11 @@ export async function enhanceWithWebSR(
 ): Promise<WebSREnhanceResult> {
   onProgress?.({ phase: "Loading real AI (WebSR)…", progress: 6 });
   const WebSR = await loadWebSRClass();
-  // Ensure device works before spending time on image prep
-  await getDevice(WebSR);
+  const gpu = await getDevice(WebSR);
 
   onProgress?.({ phase: "Preparing image…", progress: 18 });
 
-  const maxIn = 1600;
+  const maxIn = 1280;
   let workW = srcW;
   let workH = srcH;
   let bitmap: ImageBitmap;
@@ -253,7 +308,7 @@ export async function enhanceWithWebSR(
 
   if (workW < 2 || workH < 2) {
     bitmap.close();
-    throw new Error("Image too small to upscale");
+    throw new Error("Image too small");
   }
 
   const bilinearCompare = document.createElement("canvas");
@@ -268,8 +323,8 @@ export async function enhanceWithWebSR(
   }
 
   const attempts: { network: NetworkName; weights: unknown }[] = [
+    { network: "anime4k/cnn-2x-m", weights: weights2xM }, // medium first (stable, like free.upscaler default)
     { network: "anime4k/cnn-2x-l", weights: weights2xL },
-    { network: "anime4k/cnn-2x-m", weights: weights2xM },
   ];
 
   let lastErr: unknown;
@@ -278,21 +333,14 @@ export async function enhanceWithWebSR(
     const canvas = document.createElement("canvas");
     canvas.width = workW * 2;
     canvas.height = workH * 2;
-    // Do NOT set CSS width/height — that blurs WebGPU capture
-    canvas.style.position = "fixed";
-    canvas.style.left = "-10000px";
-    canvas.style.top = "0";
-    canvas.style.opacity = "0";
-    canvas.style.pointerEvents = "none";
     document.body.appendChild(canvas);
 
     try {
       onProgress?.({
-        phase: `Real AI running: ${a.network}`,
+        phase: `Real AI: ${a.network}`,
         progress: 45,
       });
 
-      // Fresh device if previous attempt killed it
       const gpuNow = await getDevice(WebSR);
 
       const websr = new WebSR({
@@ -303,14 +351,12 @@ export async function enhanceWithWebSR(
         resolution: { width: workW, height: workH },
       });
 
+      // Render twice — first frame sometimes presents empty on some GPUs
+      await websr.render(bitmap);
       await websr.render(bitmap);
 
-      onProgress?.({ phase: "Capturing AI pixels…", progress: 82 });
-      const out = await captureWebGPUCanvas(canvas, gpuNow);
-
-      if (out.width < workW * 1.5) {
-        throw new Error(`Output too small: ${out.width}×${out.height}`);
-      }
+      onProgress?.({ phase: "Capturing AI image…", progress: 80 });
+      const out = await capturePresentedWebGPUCanvas(canvas, gpuNow);
 
       canvas.remove();
       bitmap.close();
@@ -326,14 +372,14 @@ export async function enhanceWithWebSR(
       };
     } catch (e) {
       lastErr = e;
-      console.error(`AI network ${a.network} failed:`, e);
+      console.error(`AI ${a.network} failed:`, e);
       canvas.remove();
-      device = null; // force new device next attempt
+      device = null;
     }
   }
 
   bitmap.close();
   const detail =
     lastErr instanceof Error ? lastErr.message : String(lastErr ?? "unknown");
-  throw new Error(`Real AI upscaling failed: ${detail}`);
+  throw new Error(`Real AI failed: ${detail}`);
 }

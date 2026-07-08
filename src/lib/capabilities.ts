@@ -43,14 +43,10 @@ export async function detectCapabilities(): Promise<BrowserCapabilities> {
       const adapter = await navigator.gpu.requestAdapter();
       if (adapter) {
         try {
-          const dev = await adapter.requestDevice();
+          // Probe only — do NOT destroy device (can break subsequent AI runs)
+          await adapter.requestDevice();
           webgpu = "ok";
           details.push("WebGPU ready for real AI");
-          try {
-            dev.destroy?.();
-          } catch {
-            /* ignore */
-          }
         } catch {
           webgpu = "warn";
           details.push("WebGPU adapter found but device request failed");

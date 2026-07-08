@@ -1,0 +1,47 @@
+{
+  "name": "ai-video-upscaler",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Free, private, browser-based AI video & image upscaler — better presets, batch queue, and less flicker. 100% client-side via WebGPU.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler.git"
+  },
+  "bugs": {
+    "url": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler/issues"
+  },
+  "homepage": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler#readme",
+  "keywords": [
+    "video-upscaler",
+    "ai-upscaling",
+    "webgpu",
+    "super-resolution",
+    "anime4k",
+    "realesrgan",
+    "client-side",
+    "privacy"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"add eslint when ready\""
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,8 +1,8 @@
-# Quality & polish — product north star
+# Quality & polish — Foxy's Premium Upscaling
 
 We do not win on “also free.” We win when output looks **cleaner** and the app feels **premium**.
 
-free.upscaler.video wins friction. We match friction, then beat them on:
+free.upscaler.video wins friction. Foxy matches friction, then beats them on:
 
 1. **Perceived quality** (detail, less mush, less flicker, less blocks)
 2. **Craft** (preview, controls, comparison, calm progress, no junk upsells)

@@ -1,10 +1,10 @@
-# AI Video Upscaler
+# Foxy's Premium Upscaling
 
-**Free · Private · Quality-first** browser AI video & image upscaler.
+**Private · Quality-first · Browser-only** AI video & image upscaler.
 
 Drop a clip, pick a **quality preset**, tune the **multi-stage pipeline**, scrub **before/after**. Processing runs **100% on your device** — no signup, no watermark, no upload.
 
-> Inspired by [free.upscaler.video](https://free.upscaler.video/) / [WebSR](https://github.com/sb2702/websr). We match their friction, then win on **output quality** and **product polish**.
+> Inspired by [free.upscaler.video](https://free.upscaler.video/) / [WebSR](https://github.com/sb2702/websr). Match free-tool friction; win on **output quality** and **product polish**.
 
 **North star:** [docs/quality-and-polish.md](docs/quality-and-polish.md)
 
@@ -19,9 +19,9 @@ Casual upscalers are either:
 | Topaz / pro desktop | Expensive, install + GPU setup |
 | Canva / “free” web | Signup, time limits, watermarks |
 | Video2X / Waifu2x | Great models, painful setup |
-| free.upscaler.video | Excellent frictionless free tier — we aim to match that and add **better presets, batch, deblock, and clearer creator flow** |
+| free.upscaler.video | Excellent frictionless free tier — we aim to match that and add **better quality stages, presets, and polish** |
 
-**Our wedge:** same privacy story, smarter defaults (Anime / Real / AI-gen / Face), queue + resume, honest ETAs.
+**Wedge:** same privacy story, smarter defaults (Anime / Real / AI-gen / Face), multi-stage quality, calm premium UI.
 
 ---
 
@@ -51,14 +51,10 @@ Batch / cloud / PWA wait until quality clearly wins on benchmarks.
 **Requirements:** Node 20+, modern Chrome or Edge (WebGPU).
 
 ```bash
-# clone
-git clone https://github.com/isaiahhaywood40-collab/ai-video-upscaler.git
-cd ai-video-upscaler
+git clone https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling.git
+cd foxys-premium-upscaling
 
-# install
 npm install
-
-# dev server
 npm run dev
 ```
 
@@ -74,15 +70,13 @@ npm run preview  # serve dist locally
 ## How it works
 
 ```
-File → WebCodecs decode → WebGPU super-resolution → encode → download
+File → WebCodecs decode → quality stages (WebGPU) → encode → download
          (local)              (local GPU)              (local)
 ```
 
 - **Decode / encode:** [WebCodecs](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API)
-- **Upscale:** WebGPU compute (Anime4K-style + compact SR models; model cards in `docs/models.md`)
-- **Privacy:** no upload. We never see your video.
-
-If WebGPU is missing, we show a clear message (and later: WebGL fallback).
+- **Upscale:** multi-stage WebGPU (see `docs/models.md`)
+- **Privacy:** no upload. Media never leaves the device.
 
 ---
 
@@ -108,46 +102,25 @@ Desktop recommended. Mobile works for short clips but is slower.
 | **PRs** | Welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) |
 | **License** | [MIT](LICENSE) |
 
-Replace `isaiahhaywood40-collab` in this README and `package.json` after you create the remote.
-
-### Create the remote (once)
-
-```bash
-# install GitHub CLI if needed: https://cli.github.com/
-brew install gh
-gh auth login
-
-# from this folder
-gh repo create ai-video-upscaler --public --source=. --remote=origin --push \
-  --description "Free private browser AI video upscaler (WebGPU)"
-```
-
-Or on github.com → **New repository** → then:
-
-```bash
-git remote add origin https://github.com/isaiahhaywood40-collab/ai-video-upscaler.git
-git push -u origin main
-```
-
 ### Deploy to GitHub Pages (later)
 
-Workflow stub: `.github/workflows/pages.yml` — enable **Settings → Pages → GitHub Actions** after the first green build.
+Workflow: `.github/workflows/pages.yml` — enable **Settings → Pages → GitHub Actions** after the first green build. Base path: `/foxys-premium-upscaling/`.
 
 ---
 
 ## Project layout
 
 ```
-ai-video-upscaler/
+foxys-premium-upscaling/
 ├── public/              # static assets
 ├── src/
-│   ├── lib/             # codecs, gpu, models, job queue
+│   ├── lib/             # codecs, gpu, models, pipeline
 │   ├── ui/              # React components
-│   ├── workers/         # Web Workers for heavy work
+│   ├── workers/         # Web Workers
 │   ├── styles/
 │   ├── App.tsx
 │   └── main.tsx
-├── docs/                # architecture, model cards
+├── docs/                # architecture, quality plan, model cards
 ├── .github/             # CI, issue templates
 └── README.md
 ```
@@ -156,19 +129,19 @@ ai-video-upscaler/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: open an issue first for big features; keep PRs focused; don’t commit large model binaries without discussion (use Git LFS or CDN).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Keep PRs focused; don’t commit large model binaries without discussion (use Git LFS or CDN).
 
 ---
 
 ## Disclaimer
 
-Output quality depends on source material and your GPU. You’re responsible for rights to content you process. This is not affiliated with free.upscaler.video or Topaz Labs.
+Output quality depends on source material and your GPU. You’re responsible for rights to content you process. Not affiliated with free.upscaler.video or Topaz Labs.
 
 ---
 
 ## Credits
 
 - Concept peer: [free-ai-video-upscaler](https://github.com/sb2702/free-ai-video-upscaler) / [WebSR](https://github.com/sb2702/websr)
-- Algorithms (planned integration): [Anime4K](https://github.com/bloc97/Anime4K), [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)
+- Algorithms (planned): [Anime4K](https://github.com/bloc97/Anime4K), [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)
 
-Built with ❤️ for creators who just need a cleaner free upscale.
+**Foxy's Premium Upscaling** — quality-first, private, on-device.

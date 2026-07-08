@@ -27,7 +27,7 @@ import { PresetCards } from "./ui/PresetCards";
 import { ProgressPanel } from "./ui/ProgressPanel";
 import { StageControls } from "./ui/StageControls";
 
-const PRESET_STORAGE_KEY = "ai-upscaler-preset";
+const PRESET_STORAGE_KEY = "foxy-premium-upscaling-preset";
 
 export default function App() {
   const [caps, setCaps] = useState<BrowserCapabilities | null>(null);
@@ -138,8 +138,8 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div>
-          <p className="eyebrow">Local · Private · Quality-first</p>
-          <h1>AI Video Upscaler</h1>
+          <p className="eyebrow">Foxy · Local · Private · Premium</p>
+          <h1>Foxy&apos;s Premium Upscaling</h1>
           <p className="lede">
             Multi-stage enhancement — clean artifacts, super-resolve, calm
             flicker — polished enough to trust with real clips. Nothing leaves
@@ -279,10 +279,10 @@ export default function App() {
       </section>
 
       <footer className="footer">
-        <span>MIT · Quality-first browser upscaler</span>
+        <span>Foxy&apos;s Premium Upscaling · MIT</span>
         <span>
           <a
-            href="https://github.com/isaiahhaywood40-collab/ai-video-upscaler"
+            href="https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling"
             target="_blank"
             rel="noreferrer"
           >
@@ -290,7 +290,7 @@ export default function App() {
           </a>
           {" · "}
           <a
-            href="https://github.com/isaiahhaywood40-collab/ai-video-upscaler/blob/main/docs/quality-and-polish.md"
+            href="https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling/blob/main/docs/quality-and-polish.md"
             target="_blank"
             rel="noreferrer"
           >

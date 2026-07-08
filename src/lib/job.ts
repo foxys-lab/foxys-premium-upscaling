@@ -97,6 +97,6 @@ export async function runDemoPipeline(
     progress: 100,
     stageLabel: undefined,
     message:
-      "Demo complete — quality pipeline UI is live. Real WebGPU stages come next (see docs/quality-and-polish.md).",
+      "Demo complete — Foxy quality pipeline UI is live. Real WebGPU stages come next (see docs/quality-and-polish.md).",
   });
 }

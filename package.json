@@ -1,19 +1,20 @@
 {
-  "name": "ai-video-upscaler",
+  "name": "foxys-premium-upscaling",
   "version": "0.1.0",
   "private": false,
-  "description": "Free, private, browser-based AI video & image upscaler — better presets, batch queue, and less flicker. 100% client-side via WebGPU.",
+  "description": "Foxy's Premium Upscaling — private, quality-first browser AI video & image upscaler (WebGPU).",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler.git"
+    "url": "https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling.git"
   },
   "bugs": {
-    "url": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler/issues"
+    "url": "https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling/issues"
   },
-  "homepage": "https://github.com/isaiahhaywood40-collab/ai-video-upscaler#readme",
+  "homepage": "https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling#readme",
   "keywords": [
+    "foxys-premium-upscaling",
     "video-upscaler",
     "ai-upscaling",
     "webgpu",

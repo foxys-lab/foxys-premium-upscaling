@@ -61,7 +61,7 @@ See [models.md](./models.md). Weights should not bloat git history — use Git L
 
 - **Dev:** `npm run dev` (Vite)
 - **Prod static:** `npm run build` → `dist/`
-- **GitHub Pages:** `.github/workflows/pages.yml` with `base: /ai-video-upscaler/`
+- **GitHub Pages:** `.github/workflows/pages.yml` with `base: /foxys-premium-upscaling/`
 
 ## Security / privacy
 

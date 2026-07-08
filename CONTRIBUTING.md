@@ -1,19 +1,20 @@
-# Contributing
+# Contributing to Foxy's Premium Upscaling
 
-Thanks for helping improve the free browser AI video upscaler.
+Thanks for helping improve the browser AI upscaler.
 
 ## Ground rules
 
 1. **Privacy first** — core upscaling stays client-side. Cloud “boost” must be opt-in and clearly labeled.
-2. **No giant binaries in git** without agreement — models go through LFS, releases, or a CDN with checksums.
-3. **Small PRs** beat mega-PRs. One concern per PR when possible.
-4. Be kind in issues and reviews.
+2. **Quality & polish first** — see `docs/quality-and-polish.md`. Features that don’t improve output or craft wait.
+3. **No giant binaries in git** without agreement — models go through LFS, releases, or a CDN with checksums.
+4. **Small PRs** beat mega-PRs. One concern per PR when possible.
+5. Be kind in issues and reviews.
 
 ## Dev setup
 
 ```bash
-git clone https://github.com/isaiahhaywood40-collab/ai-video-upscaler.git
-cd ai-video-upscaler
+git clone https://github.com/isaiahhaywood40-collab/foxys-premium-upscaling.git
+cd foxys-premium-upscaling
 npm install
 npm run dev
 ```

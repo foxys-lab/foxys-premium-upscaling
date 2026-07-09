@@ -15,6 +15,7 @@ import {
   enhanceMedia,
   type EnhanceResult,
 } from "./lib/enhance";
+import { canvasToBlob } from "./lib/enhance/webgl";
 import { CompareSlider } from "./ui/CompareSlider";
 import { DetailCrops } from "./ui/DetailCrops";
 import { DropZone } from "./ui/DropZone";
@@ -53,14 +54,22 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [diag, setDiag] = useState<string>("");
 
   const previewRef = useRef<string | null>(null);
   const afterRef = useRef<string | null>(null);
+  /** Permanent slot for AI WebGPU canvas — never unmount while viewing result */
+  const aiSlotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     detectCapabilities().then((c) => {
-      if (!cancelled) setCaps(c);
+      if (!cancelled) {
+        setCaps(c);
+        setDiag(
+          `WebGPU=${c.webgpu} · WebGL=${c.webgl} · ${c.details.slice(0, 2).join(" · ")}`,
+        );
+      }
     });
     return () => {
       cancelled = true;
@@ -74,7 +83,6 @@ export default function App() {
     };
   }, []);
 
-  // Escape closes fullscreen
   useEffect(() => {
     if (!fullscreen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -83,6 +91,19 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
+
+  // Keep live AI canvas mounted in the permanent slot (free.upscaler pattern)
+  useEffect(() => {
+    const slot = aiSlotRef.current;
+    if (!slot || !afterCanvas) return;
+    // Move canvas into stable slot so WebGPU presentation stays alive
+    if (afterCanvas.parentElement !== slot) {
+      slot.replaceChildren();
+      afterCanvas.style.cssText =
+        "display:block;width:100%;height:100%;object-fit:contain;position:absolute;inset:0;";
+      slot.appendChild(afterCanvas);
+    }
+  }, [afterCanvas, result]);
 
   const ready = useMemo(
     () => (caps ? canRunLocalUpscale(caps) : false),
@@ -111,6 +132,7 @@ export default function App() {
     setAfter(null);
     setAfterCanvas(null);
     setFullscreen(false);
+    aiSlotRef.current?.replaceChildren();
 
     const isImage =
       f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(f.name);
@@ -135,6 +157,7 @@ export default function App() {
     setBusy(false);
     setError(null);
     setFullscreen(false);
+    aiSlotRef.current?.replaceChildren();
   };
 
   const start = async () => {
@@ -151,6 +174,7 @@ export default function App() {
     setAfter(null);
     setAfterCanvas(null);
     setResult(null);
+    aiSlotRef.current?.replaceChildren();
 
     setJob({
       ...job,
@@ -179,8 +203,7 @@ export default function App() {
         );
       });
 
-      setAfter(enhanced.objectUrl);
-      setResult(enhanced);
+      // Prefer live WebGPU canvas for display (not black snapshot)
       if (
         "liveCanvas" in enhanced &&
         enhanced.liveCanvas instanceof HTMLCanvasElement
@@ -188,22 +211,28 @@ export default function App() {
         setAfterCanvas(enhanced.liveCanvas);
       }
 
-      // Free.upscaler style: left = bilinear 2× original, right = AI
+      // Snapshot URL only if non-black
+      if (enhanced.objectUrl) {
+        setAfter(enhanced.objectUrl);
+      }
+      setResult(enhanced);
+
       if (
         "compareBeforeUrl" in enhanced &&
         typeof enhanced.compareBeforeUrl === "string" &&
         enhanced.compareBeforeUrl
       ) {
         setPreview(enhanced.compareBeforeUrl);
-      } else if (job.isImage && !previewRef.current) {
-        setPreview(URL.createObjectURL(file));
       }
 
       const net =
         "network" in enhanced
           ? (enhanced as { network?: string }).network
           : undefined;
-      const engineLabel = ` · REAL AI ${net || "WebSR Anime4K CNN"}`;
+      const snapNote =
+        "snapshotOk" in enhanced && enhanced.snapshotOk === false
+          ? " · live GPU display"
+          : "";
 
       setJob((prev) =>
         prev
@@ -212,7 +241,7 @@ export default function App() {
               status: "done",
               progress: 100,
               stageLabel: "Done",
-              message: `Enhanced to ${enhanced.width}×${enhanced.height}${engineLabel}`,
+              message: `Enhanced to ${enhanced.width}×${enhanced.height} · REAL AI ${net || ""}${snapNote}`,
             }
           : prev,
       );
@@ -235,8 +264,26 @@ export default function App() {
     }
   };
 
-  const onDownload = () => {
+  const onDownload = async () => {
     if (!result) return;
+    // Prefer live canvas capture at download time (canvas is on-screen)
+    if (afterCanvas) {
+      try {
+        const c = afterCanvas as HTMLCanvasElement & {
+          convertToBlob?: (o?: { type?: string }) => Promise<Blob>;
+        };
+        if (typeof c.convertToBlob === "function") {
+          const blob = await c.convertToBlob({ type: "image/png" });
+          downloadBlob(blob, result.downloadName);
+          return;
+        }
+        const blob = await canvasToBlob(afterCanvas, "image/png");
+        downloadBlob(blob, result.downloadName);
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
     downloadBlob(result.blob, result.downloadName);
   };
 
@@ -245,9 +292,15 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Stable mount point for WebGPU AI canvas — free.upscaler pattern */}
+      <div
+        ref={aiSlotRef}
+        className={`ai-live-slot${done && afterCanvas ? " ai-live-slot-active" : ""}`}
+        aria-hidden={!done}
+      />
+
       <main className="app-main">
         <div className="landing">
-          {/* Hide big title chrome once in result mode for cleaner competitor-like focus */}
           {!done && (
             <>
               <div className="landing-brand">
@@ -256,9 +309,10 @@ export default function App() {
               </div>
               <h1>Foxy&apos;s Premium Upscaling</h1>
               <p className="landing-lede">
-                Upscale videos or images in your browser — free, private,
-                automatic. Files never leave your device.
+                Real Anime4K CNN AI in your browser (WebGPU). Private, free, no
+                upload.
               </p>
+              {diag && <p className="diag-line">{diag}</p>}
             </>
           )}
 
@@ -274,10 +328,10 @@ export default function App() {
               <DropZone onFile={onFile} disabled={busy} variant="landing" />
               <div className="landing-trust">
                 <span className="trust-chip">
-                  <strong>One click</strong> — no settings
+                  <strong>Real AI</strong> · Anime4K CNN
                 </span>
                 <span className="trust-chip">
-                  <strong>Local</strong> AI-style enhance
+                  <strong>Chrome/Edge</strong> · WebGPU
                 </span>
                 <span className="trust-chip">
                   <strong>No</strong> watermark
@@ -285,7 +339,6 @@ export default function App() {
               </div>
             </>
           ) : done ? (
-            /* ——— Competitor-style result card ——— */
             <div className="result-card">
               <CompareSlider
                 beforeUrl={previewUrl}
@@ -317,20 +370,16 @@ export default function App() {
               </button>
 
               <div className="result-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={clear}
-                >
+                <button type="button" className="btn-secondary" onClick={clear}>
                   Upscale another
                   <span aria-hidden> ↻</span>
                 </button>
                 <button
                   type="button"
                   className="btn-primary-solid"
-                  onClick={onDownload}
+                  onClick={() => void onDownload()}
                 >
-                  Download upscaled {result?.kind === "video" ? "video" : "image"}
+                  Download upscaled image
                   <span aria-hidden> ↓</span>
                 </button>
               </div>
@@ -339,17 +388,15 @@ export default function App() {
                 <p className="result-meta">
                   {result.width}×{result.height}
                   {"isRealAI" in result && result.isRealAI
-                    ? ` · REAL AI ${"network" in result && result.network ? result.network : "Anime4K CNN"}`
-                    : " · (not AI)"}
+                    ? ` · REAL AI ${"network" in result && result.network ? result.network : ""}`
+                    : ""}
                   {"elapsedMs" in result && result.elapsedMs
                     ? ` · ${(result.elapsedMs / 1000).toFixed(1)}s`
                     : ""}
-                  {job?.fileName ? ` · ${job.fileName}` : ""}
                 </p>
               )}
             </div>
           ) : (
-            /* ——— Working state: file + enhance ——— */
             <div className="simple-workspace">
               <div className="file-chip simple-file">
                 <div>
@@ -375,18 +422,12 @@ export default function App() {
                 </div>
               )}
 
-              {job!.isVideo && !previewUrl && (
-                <p className="simple-done-note">
-                  Video selected. Runs fully on your device. Output: WebM.
-                </p>
-              )}
-
               <div className="simple-actions">
                 <button
                   type="button"
                   className="dropzone-btn"
                   disabled={!ready || busy}
-                  onClick={start}
+                  onClick={() => void start()}
                 >
                   {busy ? "Upscaling…" : "Upscale"}
                 </button>
@@ -401,16 +442,15 @@ export default function App() {
                   {error}
                   <br />
                   <span className="muted">
-                    Use desktop Chrome/Edge → hard refresh (Cmd+Shift+R) → try a
-                    smaller PNG/JPG. Open chrome://gpu and confirm WebGPU is
-                    available.
+                    Use desktop Chrome/Edge → Cmd+Shift+R → chrome://gpu must
+                    show WebGPU. Try a smaller PNG/JPG.
                   </span>
                   <div className="actions" style={{ marginTop: "0.75rem" }}>
                     <button
                       type="button"
                       className="dropzone-btn"
                       disabled={busy || !ready}
-                      onClick={start}
+                      onClick={() => void start()}
                     >
                       Retry AI upscale
                     </button>
@@ -420,9 +460,8 @@ export default function App() {
 
               {!ready && caps && (
                 <div className="notice warn">
-                  <strong>WebGPU not ready for real AI.</strong> Use desktop
-                  Chrome or Edge (Safari/Firefox often lack WebGPU). Visit{" "}
-                  <code>chrome://gpu</code>.{" "}
+                  <strong>WebGPU required for real AI.</strong> Desktop Chrome
+                  or Edge only.{" "}
                   <span className="muted">{caps.details.join(" · ")}</span>
                 </div>
               )}
@@ -431,18 +470,14 @@ export default function App() {
         </div>
       </main>
 
-      {fullscreen && (previewUrl || afterUrl) && (
+      {fullscreen && (previewUrl || afterUrl || afterCanvas) && (
         <div
           className="fs-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label="Fullscreen comparison"
           onClick={() => setFullscreen(false)}
         >
-          <div
-            className="fs-panel"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="fs-panel" onClick={(e) => e.stopPropagation()}>
             <div className="fs-top">
               <span>Fullscreen comparison</span>
               <button
@@ -474,15 +509,7 @@ export default function App() {
             Source on GitHub
           </a>
           <span className="sep">|</span>
-          <a
-            href="https://github.com/foxys-lab/foxys-premium-upscaling/issues"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Feedback
-          </a>
-          <span className="sep">|</span>
-          <span>© Foxy&apos;s Lab · Free · Private · On-device</span>
+          <span>Real AI · WebSR Anime4K · WebGPU</span>
         </div>
       </footer>
     </div>

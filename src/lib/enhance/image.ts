@@ -116,6 +116,10 @@ export async function enhanceImage(
   const cropBeforeUrl = await centerCropUrl(beforeImg);
 
   onProgress?.({ phase: "Done — real AI", progress: 100 });
+  // If snapshot failed (black blob), still return live canvas for display
+  const snapshotOk =
+    "snapshotOk" in result ? Boolean(result.snapshotOk) : true;
+
   return {
     blob,
     objectUrl,
@@ -129,5 +133,6 @@ export async function enhanceImage(
     network: result.network,
     elapsedMs: Math.round(performance.now() - t0),
     isRealAI: true,
-  };
+    snapshotOk,
+  } as ImageEnhanceResult & { snapshotOk: boolean };
 }

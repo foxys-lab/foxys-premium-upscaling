@@ -71,6 +71,24 @@ code {
   flex-direction: column;
 }
 
+/* Live WebGPU canvas mount (free.upscaler keeps canvas in DOM) */
+.ai-live-slot {
+  display: none;
+}
+
+.ai-live-slot-active {
+  /* When active, CompareSlider owns the canvas node via afterCanvas prop */
+  display: none;
+}
+
+.diag-line {
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  text-align: center;
+}
+
 .app-main {
   flex: 1;
   width: 100%;

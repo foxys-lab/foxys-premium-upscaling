@@ -20,8 +20,8 @@ let ctx: ImageBitmapRenderingContext | null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Default weights (medium / real-life) — same as upstream
-const weights = require('./weights/cnn-2x-m-rl.json');
+// Default Large / photo — more visible than medium
+const defaultWeights = require('./weights/cnn-2x-l-rl.json');
 
 /**
  * Check if WebGPU is supported in this environment
@@ -48,8 +48,8 @@ async function init(config: InitData): Promise<void> {
   }
 
   websr = new WebSR({
-    network_name: "anime4k/cnn-2x-m",
-    weights,
+    network_name: "anime4k/cnn-2x-l",
+    weights: defaultWeights,
     resolution: config.resolution,
     gpu: gpu,
     canvas: config.upscaled as any
@@ -83,12 +83,34 @@ async function init(config: InitData): Promise<void> {
 }
 
 /**
- * Switch to a different AI upscaling network and re-render
+ * Switch to a different AI upscaling network and re-render.
+ * Clears WebGPU intermediate buffers so Small/Medium/Large don't share stale tensors.
  */
 async function switchNetwork(name: string, nextWeights: any, bitmap: ImageBitmap): Promise<void> {
   if (!websr) {
     throw new Error('WebSR not initialized yet');
   }
+  if (!nextWeights || !nextWeights.layers) {
+    throw new Error('Missing network weights for ' + name);
+  }
+
+  // WebSR reuses buffer names across S/M/L; wipe so new architecture gets fresh GPU buffers
+  try {
+    const ctxAny = (websr as any).context || (globalThis as any).context;
+    if (ctxAny?.buffers) {
+      for (const key of Object.keys(ctxAny.buffers)) {
+        try {
+          ctxAny.buffers[key]?.destroy?.();
+        } catch {
+          /* ignore */
+        }
+      }
+      ctxAny.buffers = {};
+    }
+  } catch (e) {
+    console.warn('Buffer reset failed', e);
+  }
+
   websr.switchNetwork(name as any, nextWeights);
   await websr.render(bitmap as any);
   postMessage({ cmd: 'networkReady' } satisfies WorkerResponseMessage);

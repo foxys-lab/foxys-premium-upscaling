@@ -141,27 +141,46 @@
 
     <div id="settings" class="mt-3 mb-3 w-full h-fit rounded-2xl text-base bg-page border border-gray-border p-4 text-ink">
       <table class="w-full">
-        <tr class="hidden">
-          <th class="w-1/2">Settings</th>
-          <th></th>
-        </tr>
-        <tr title="Small is faster, Large is higher quality" class="h-15">
-          <td class="w-2/5 text-muted">Upscaling network</td>
+        <tr title="Small = faster, Large = sharper AI (default)" class="h-15">
+          <td class="w-2/5 text-muted align-middle">Quality</td>
           <td class="float-right py-2">
-            <input type="radio" class="btn-check" name="options" id="option1" value="small"
-                   onclick="switchNetworkSize(this);" autocomplete="off">
+            <input type="radio" class="btn-check" name="netsize" id="option1" value="small"
+                   onchange="switchNetworkSize(this)" autocomplete="off">
             <label class="btn btn-outline-primary" for="option1">Small</label>
             &nbsp;
-            <input type="radio" class="btn-check" name="options" id="option2" value="medium"
-                   onclick="switchNetworkSize(this);" autocomplete="off" checked>
+            <input type="radio" class="btn-check" name="netsize" id="option2" value="medium"
+                   onchange="switchNetworkSize(this)" autocomplete="off">
             <label class="btn btn-outline-primary" for="option2">Medium</label>
             &nbsp;
-            <input type="radio" class="btn-check" name="options" id="option3" value="large"
-                   onclick="switchNetworkSize(this);" autocomplete="off">
+            <input type="radio" class="btn-check" name="netsize" id="option3" value="large"
+                   onchange="switchNetworkSize(this)" autocomplete="off" checked>
             <label class="btn btn-outline-primary" for="option3">Large</label>
           </td>
         </tr>
+        <tr title="Pick the content type for better AI results" class="h-15">
+          <td class="w-2/5 text-muted align-middle pt-3">Content</td>
+          <td class="float-right py-2 pt-3">
+            <input type="radio" class="btn-check" name="netstyle" id="style1" value="rl"
+                   onchange="switchNetworkStyle(this)" autocomplete="off" checked>
+            <label class="btn btn-outline-primary" for="style1">Photo</label>
+            &nbsp;
+            <input type="radio" class="btn-check" name="netstyle" id="style2" value="an"
+                   onchange="switchNetworkStyle(this)" autocomplete="off">
+            <label class="btn btn-outline-primary" for="style2">Anime</label>
+            &nbsp;
+            <input type="radio" class="btn-check" name="netstyle" id="style3" value="3d"
+                   onchange="switchNetworkStyle(this)" autocomplete="off">
+            <label class="btn btn-outline-primary" for="style3">3D/CG</label>
+          </td>
+        </tr>
       </table>
+      <p class="text-muted text-xs mt-3 mb-0 text-center" x-show="$store.networkBusy">
+        Applying <span x-text="$store.networkLabel" class="text-ink font-bold"></span> model…
+      </p>
+      <p class="text-muted text-xs mt-3 mb-0 text-center" x-show="!$store.networkBusy">
+        Active: <span x-text="$store.networkLabel" class="text-ink font-bold"></span>
+        · Drag the slider — right side is AI
+      </p>
     </div>
 
     <button type="button" class="btn btn-primary relative mx-auto w-fit block flex flex-row"

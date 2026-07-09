@@ -58,8 +58,18 @@ let mediaKind: MediaKind = 'video';
 type NetworkSize = 'small' | 'medium' | 'large';
 type ContentType = 'rl' | 'an' | '3d';
 
-let size: NetworkSize = 'medium';
+// Default Large — medium Anime4K is subtle on real photos
+let size: NetworkSize = 'large';
 let content: ContentType = 'rl';
+/** Worker has finished first WebSR init (can switch networks) */
+let networkReady = false;
+let networkSwitchInFlight = false;
+
+function networkLabel(): string {
+    const sizeLabel = size === 'small' ? 'Small' : size === 'medium' ? 'Medium' : 'Large';
+    const styleLabel = content === 'an' ? 'Anime' : content === '3d' ? '3D/CG' : 'Photo';
+    return `${sizeLabel} · ${styleLabel}`;
+}
 
 // Input data
 let download_name: string;
@@ -147,6 +157,8 @@ async function index(): Promise<void> {
     Alpine.store('eta', '');
     Alpine.store('error', '');
     Alpine.store('component', '');
+    Alpine.store('networkBusy', false);
+    Alpine.store('networkLabel', networkLabel());
 
     Alpine.start();
     document.body.style.display = "block";
@@ -169,14 +181,33 @@ async function index(): Promise<void> {
         showError(err.message || 'Background worker failed to load. Hard-refresh the page.');
     };
 
+    // Handlers available immediately (HTML onchange) — was only set after AI finished
+    window.chooseFile = chooseFile;
+    window.switchNetworkSize = onSwitchNetworkSize;
+    window.switchNetworkStyle = onSwitchNetworkStyle;
+
     if (!("VideoEncoder" in window) || !("VideoDecoder" in window)) {
         return showUnsupported("WebCodecs (use latest Chrome or Edge)");
     }
 
     // WebGPU checked in worker — don't block on File System Access API (blob download works)
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
+}
 
-    window.chooseFile = chooseFile;
+async function onSwitchNetworkSize(el: HTMLInputElement): Promise<void> {
+    const next = el.value as NetworkSize;
+    if (!next || next === size) return;
+    size = next;
+    Alpine.store('networkLabel', networkLabel());
+    await updateNetwork();
+}
+
+async function onSwitchNetworkStyle(el: HTMLInputElement): Promise<void> {
+    const next = el.value as ContentType;
+    if (!next || next === content) return;
+    content = next;
+    Alpine.store('networkLabel', networkLabel());
+    await updateNetwork();
 }
 
 /**
@@ -250,6 +281,9 @@ async function loadMediaFile(file: File, handle?: FileSystemFileHandle): Promise
     try {
         Alpine.store('state', 'loading');
         Alpine.store('error', '');
+        networkReady = false;
+        Alpine.store('networkBusy', true);
+        Alpine.store('networkLabel', 'Loading AI…');
 
         inputFile = file;
         inputFileHandle = handle;
@@ -319,18 +353,6 @@ async function setupImagePreview(file: File): Promise<void> {
     window.fullScreenPreview = async () => {
         imageCompare.requestFullscreen?.();
     };
-    window.switchNetworkSize = async function (el: HTMLInputElement) {
-        if (el.value !== size) {
-            size = el.value as NetworkSize;
-            await updateNetwork();
-        }
-    };
-    window.switchNetworkStyle = async function (el: HTMLInputElement) {
-        if (el.value !== content) {
-            content = el.value as ContentType;
-            await updateNetwork();
-        }
-    };
     window.togglePause = function () {};
 
     // Show compare UI immediately (spinner was trapping users if WebSR was slow)
@@ -351,10 +373,10 @@ async function setupImagePreview(file: File): Promise<void> {
         },
     } satisfies WorkerRequestMessage, [bitmap, upscaled, original]);
     await ready;
+    networkReady = true;
 
-    content = 'rl';
+    // Apply current UI selection (Large/Photo by default)
     await updateNetwork();
-    Alpine.store('style', 'rl');
     sizeCompareBox(imageCompare, width, height, 320);
 
     URL.revokeObjectURL(url);
@@ -468,8 +490,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         } satisfies WorkerRequestMessage, [bitmap, upscaled, original]);
 
         await ready;
-        content = 'rl';
-        Alpine.store('style', 'rl');
+        networkReady = true;
         await updateNetwork();
         sizeCompareBox(imageCompare, video.videoWidth, video.videoHeight, 320);
 
@@ -520,20 +541,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             setTimeout(canvasFullScreen, 60);
             setTimeout(canvasFullScreen, 200);
         }
-
-        window.switchNetworkSize = async function(el: HTMLInputElement){
-            if (el.value !== size) {
-                size = el.value as NetworkSize;
-                await updateNetwork();
-            }
-        };
-
-        window.switchNetworkStyle = async function(el: HTMLInputElement){
-            if (el.value !== content) {
-                content = el.value as ContentType;
-                await updateNetwork();
-            }
-        };
 
         } catch (e: any) {
             console.error(e);
@@ -595,19 +602,47 @@ worker.onmessage = function (event: MessageEvent<WorkerResponseMessage>) {
  * Switch to a different upscaling network — wait until WebSR finished re-render
  */
 async function updateNetwork(): Promise<void> {
-    const bitmap = await getSourceBitmap();
-    const done = waitForWorker('networkReady');
+    if (!networkReady) {
+        console.warn('Network not ready yet — model still loading');
+        return;
+    }
+    if (networkSwitchInFlight) {
+        console.warn('Network switch already in progress');
+        return;
+    }
 
-    worker.postMessage({
-        cmd: 'network',
-        data: {
-            name: networks[size].name,
-            bitmap,
-            weights: weights[size][content]
+    networkSwitchInFlight = true;
+    Alpine.store('networkBusy', true);
+    Alpine.store('networkLabel', networkLabel());
+
+    try {
+        const bitmap = await getSourceBitmap();
+        const done = waitForWorker('networkReady', 30000);
+        const weightPayload = weights[size][content];
+        if (!weightPayload) {
+            throw new Error(`No weights for ${size}/${content}`);
         }
-    } satisfies WorkerRequestMessage, [bitmap]);
 
-    await done;
+        worker.postMessage({
+            cmd: 'network',
+            data: {
+                name: networks[size].name,
+                bitmap,
+                // Structured-clone a plain copy (avoid transferring shared module state)
+                weights: JSON.parse(JSON.stringify(weightPayload)),
+            },
+        } satisfies WorkerRequestMessage, [bitmap]);
+
+        await done;
+        console.log('Applied network', networks[size].name, content);
+    } catch (e: any) {
+        console.error('updateNetwork failed', e);
+        showError(e?.message || 'Failed to switch AI model');
+    } finally {
+        networkSwitchInFlight = false;
+        Alpine.store('networkBusy', false);
+        Alpine.store('networkLabel', networkLabel());
+    }
 }
 
 //===================  Process ===========================

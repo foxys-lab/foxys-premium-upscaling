@@ -333,11 +333,14 @@ async function setupImagePreview(file: File): Promise<void> {
     };
     window.togglePause = function () {};
 
+    // Show compare UI immediately (spinner was trapping users if WebSR was slow)
+    Alpine.store('state', 'preview');
+
     const bitmap = await createImageBitmap(imageEl);
     const upscaled = upscaled_canvas.transferControlToOffscreen();
     const original = original_canvas.transferControlToOffscreen();
 
-    const ready = waitForWorker('ready');
+    const ready = waitForWorker('ready', 25000);
     worker.postMessage({
         cmd: 'init',
         data: {
@@ -347,12 +350,12 @@ async function setupImagePreview(file: File): Promise<void> {
             resolution: { width, height },
         },
     } satisfies WorkerRequestMessage, [bitmap, upscaled, original]);
-    await ready; // MUST finish before network switch / export
+    await ready;
 
     content = 'rl';
     await updateNetwork();
     Alpine.store('style', 'rl');
-    Alpine.store('state', 'preview');
+    sizeCompareBox(imageCompare, width, height, 320);
 
     URL.revokeObjectURL(url);
 }
@@ -422,188 +425,124 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         try {
         const fullScreenButton = document.getElementById('full-screen');
 
-
         window.initRecording = initRecording;
         window.fullScreenPreview = fullScreenPreview;
 
+        // Estimate output + leave loading spinner ASAP (WebSR can be slow)
+        const bitrate = getBitrate();
+        const estimated_size = (bitrate / 8) * video.duration + (128 / 8) * video.duration;
+        Alpine.store('target', estimated_size > MAX_FILE_BLOB_SIZE ? 'writer' : 'blob');
+        Alpine.store('size', humanFileSize(estimated_size));
+        try {
+            const est = await navigator.storage.estimate();
+            if (est.quota && estimated_size > est.quota) {
+                return showError(
+                    `The video is too big. It would output ~${humanFileSize(estimated_size)} but the browser quota is ${humanFileSize(est.quota)}`
+                );
+            }
+        } catch {
+            /* ignore */
+        }
+
+        Alpine.store('state', 'preview');
+        sizeCompareBox(imageCompare, video.videoWidth, video.videoHeight, 320);
+
         const bitmap = await createImageBitmap(video);
-
-
+        upscaled_canvas = document.getElementById('upscaled') as HTMLCanvasElement;
+        original_canvas = document.getElementById('original') as HTMLCanvasElement;
         const upscaled = upscaled_canvas.transferControlToOffscreen();
-        const original =    original_canvas.transferControlToOffscreen();
+        const original = original_canvas.transferControlToOffscreen();
 
-
-        const ready = waitForWorker('ready');
-        worker.postMessage({cmd: "init", data: {
+        const ready = waitForWorker('ready', 25000);
+        worker.postMessage({
+            cmd: 'init',
+            data: {
                 bitmap,
                 upscaled,
                 original,
                 resolution: {
                     width: video.videoWidth,
-                    height: video.videoHeight
-                }
+                    height: video.videoHeight,
+                },
+            },
+        } satisfies WorkerRequestMessage, [bitmap, upscaled, original]);
 
-            }}, [bitmap, upscaled, original]);
-        await ready; // Wait for WebSR first render (prevents network race / blank AI)
-
-        // Default to 'rl' (real life) network — same as competitor
+        await ready;
         content = 'rl';
-        await updateNetwork();
         Alpine.store('style', 'rl');
-
-
-
-
-
-
-
-
+        await updateNetwork();
+        sizeCompareBox(imageCompare, video.videoWidth, video.videoHeight, 320);
 
         function setFullScreenLocation(){
-            const containerWidth = Math.round(video.videoWidth/video.videoHeight*318);
-            const containerHeight = 318;
-            
-            // Position at bottom-right of the preview container (with small padding)
+            if (!fullScreenButton) return;
+            const containerWidth = imageCompare.clientWidth || Math.round(video.videoWidth / video.videoHeight * 320);
+            const containerHeight = imageCompare.clientHeight || 320;
             fullScreenButton.style.left = `${imageCompare.offsetLeft + containerWidth - 20}px`;
             fullScreenButton.style.top = `${imageCompare.offsetTop + containerHeight - 20}px`;
         }
-
         setTimeout(setFullScreenLocation, 20);
         setTimeout(setFullScreenLocation, 60);
         setTimeout(setFullScreenLocation, 200);
 
-
-
-
-
         imageCompare.addEventListener('fullscreenchange', function () {
-            if(!document.fullscreenElement){
-                // Reset canvas styles
-                upscaled_canvas.style.width = ``;
-                upscaled_canvas.style.height = ``;
-                original_canvas.style.width = ``;
-                original_canvas.style.height = ``;
-                
-                // Reset container styles to original preview dimensions
-                const imageCompareOuter = document.getElementById('image-compare-outer');
-                const imageCompareInner = document.getElementById('image-compare');
-                
-                // Reset outer container
-                imageCompareOuter.style.width = ``;
-                imageCompareOuter.style.height = ``;
-                imageCompareOuter.style.backgroundColor = ``;
-                imageCompareOuter.style.display = ``;
-                imageCompareOuter.style.justifyContent = ``;
-                imageCompareOuter.style.alignItems = ``;
-                
-                // Reset inner container to original preview size
-                imageCompareInner.style.height = '318px';
-                imageCompareInner.style.width = `${Math.round(video.videoWidth/video.videoHeight*318)}px`;
-                imageCompareInner.style.margin = 'auto';
-                imageCompareInner.style.position = 'relative';
+            if (!document.fullscreenElement) {
+                sizeCompareBox(imageCompare, video.videoWidth, video.videoHeight, 320);
             }
         });
 
-        let bitrate = getBitrate();
-
-        const estimated_size = (bitrate/8)*video.duration + (128/8)*video.duration; // Assume 128 kbps audio
-
-        if(estimated_size > MAX_FILE_BLOB_SIZE){
-            Alpine.store('target', 'writer');
-        } else {
-            Alpine.store('target', 'blob');
-        }
-
-        const quota = (await navigator.storage.estimate()).quota;
-
-        if(estimated_size > quota){
-            return showError(`The video is too big. It would output a file of ${humanFileSize(estimated_size)} but the browser can only write files up to ${humanFileSize(quota)}`);
-        }
-
-
-        Alpine.store('size', humanFileSize(estimated_size))
-
-
         function canvasFullScreen(){
-            // Calculate aspect ratios
             const videoAspectRatio = video.videoWidth / video.videoHeight;
             const screenAspectRatio = window.innerWidth / window.innerHeight;
-            
-            let displayWidth, displayHeight;
-
-            const imageCompareOuter = document.getElementById('image-compare-outer');
-            const imageCompareInner = document.getElementById('image-compare');
-            
-            // If video is wider than screen, fit to width (letterbox on top/bottom)
+            let displayWidth: number, displayHeight: number;
+            const imageCompareOuter = document.getElementById('image-compare-outer') as HTMLElement;
+            const imageCompareInner = document.getElementById('image-compare') as HTMLElement;
             if (videoAspectRatio > screenAspectRatio) {
                 displayWidth = window.innerWidth;
                 displayHeight = window.innerWidth / videoAspectRatio;
-            } 
-            // If video is taller than screen, fit to height (pillarbox on sides)
-            else {
+            } else {
                 displayWidth = window.innerHeight * videoAspectRatio;
                 displayHeight = window.innerHeight;
             }
-            
-            // Style the outer container to fill screen with black background and center content
             imageCompareOuter.style.width = `${window.innerWidth}px`;
             imageCompareOuter.style.height = `${window.innerHeight}px`;
             imageCompareOuter.style.backgroundColor = 'black';
             imageCompareOuter.style.display = 'flex';
             imageCompareOuter.style.justifyContent = 'center';
             imageCompareOuter.style.alignItems = 'center';
-            
-
-            console.log("Image Compare Outer", imageCompareOuter);
-            console.log("Image Compare Inner", imageCompareInner);
-            // Size the inner container to maintain aspect ratio
             imageCompareInner.style.width = `${displayWidth}px`;
             imageCompareInner.style.height = `${displayHeight}px`;
-            
-            // Let the canvases fill their parent container
-            upscaled_canvas.style.width = `${displayWidth}px`;
-            upscaled_canvas.style.height = `${displayHeight}px`;
-            original_canvas.style.width = `${displayWidth}px`;
-            original_canvas.style.height = `${displayHeight}px`;
+            imageCompareOuter.style.setProperty('--compare-w', `${displayWidth}px`);
         }
 
-        async function fullScreenPreview(e) {
-            imageCompare.requestFullscreen();
+        async function fullScreenPreview(_e?: Event) {
+            await imageCompare.requestFullscreen?.();
             setTimeout(canvasFullScreen, 20);
             setTimeout(canvasFullScreen, 60);
             setTimeout(canvasFullScreen, 200);
-
         }
-
-
-        Alpine.store('state', 'preview');
-
-
-
 
         window.switchNetworkSize = async function(el: HTMLInputElement){
-            if(el.value !== size){
+            if (el.value !== size) {
                 size = el.value as NetworkSize;
-
                 await updateNetwork();
             }
-        }
+        };
 
         window.switchNetworkStyle = async function(el: HTMLInputElement){
-            if(el.value !== content){
+            if (el.value !== content) {
                 content = el.value as ContentType;
-
                 await updateNetwork();
             }
-        }
+        };
 
         } catch (e: any) {
             console.error(e);
-            showError(e?.message || 'Failed to build preview. Your GPU/WebGPU may be blocked.');
+            showError(e?.message || 'Failed to build preview. Use desktop Chrome/Edge with WebGPU enabled.');
         }
     }
 
 }
+
 
 
 /**

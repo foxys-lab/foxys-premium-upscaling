@@ -67,11 +67,16 @@ async function init(config: InitData): Promise<void> {
     resizeWidth: config.resolution.width * 2,
   });
 
-  // Right side: real Anime4K / WebSR AI
-  await websr.render(config.bitmap as any);
-
   if (ctx) {
     ctx.transferFromImageBitmap(bitmap2);
+  }
+
+  // Right side: real Anime4K / WebSR AI (signal ready even if render is slow)
+  try {
+    await websr.render(config.bitmap as any);
+  } catch (err) {
+    console.error('WebSR render failed', err);
+    throw err;
   }
 
   postMessage({ cmd: 'ready' } satisfies WorkerResponseMessage);

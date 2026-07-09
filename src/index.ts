@@ -508,7 +508,8 @@ async function initRecording(): Promise<void> {
             return showError('No video loaded. Choose a video first.');
         }
 
-        Alpine.store('state', 'loading');
+        // Show progress UI immediately (not the blank loading spinner)
+        Alpine.store('state', 'processing');
         Alpine.store('progress', 0);
         Alpine.store('eta', 'starting…');
 

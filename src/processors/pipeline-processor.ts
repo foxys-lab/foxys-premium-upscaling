@@ -319,6 +319,8 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
   const { file: inputFile, inputHandle, outputHandle, websr, upscaled_canvas, original_canvas, resolution, getPauseLock } = args;
 
   console.log('Starting pipeline processor with Streams API');
+  postMessage({ cmd: 'progress', data: 0 });
+  postMessage({ cmd: 'eta', data: 'loading demuxer…' });
 
   try {
   // Prefer File (works from <input type="file">); fall back to File System Access handle
@@ -333,6 +335,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
   });
 
   await demuxer.load(file);
+  postMessage({ cmd: 'eta', data: 'demuxing…' });
 
   // Get media info
   const mediaInfo = await demuxer.getMediaInfo();

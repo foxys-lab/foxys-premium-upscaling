@@ -4,13 +4,11 @@ import type {
   WorkerRequestMessage,
   WorkerResponseMessage,
   InitData,
-  NetworkData,
   Resolution
 } from './types/worker-messages';
 
-// Processors
+// Processors — same path as free-ai-video-upscaler
 import pipelineProcessor from './processors/pipeline-processor';
- import mediabunnyProcessor from './processors/mediabunny-processor'; // Fallback if needed
 
 // Worker state
 let gpu: any | false;
@@ -22,7 +20,7 @@ let ctx: ImageBitmapRenderingContext | null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Default weights
+// Default weights (medium / real-life) — same as upstream
 const weights = require('./weights/cnn-2x-m-rl.json');
 
 /**
@@ -39,10 +37,14 @@ async function isSupported(): Promise<void> {
 
 /**
  * Initialize the worker with canvases and create WebSR instance
+ * (identical to free-ai-video-upscaler, plus ready signal)
  */
 async function init(config: InitData): Promise<void> {
   if (!gpu) {
     gpu = await WebSR.initWebGPU();
+  }
+  if (!gpu) {
+    throw new Error('WebGPU not available');
   }
 
   websr = new WebSR({
@@ -50,7 +52,7 @@ async function init(config: InitData): Promise<void> {
     weights,
     resolution: config.resolution,
     gpu: gpu,
-    canvas: config.upscaled as any // OffscreenCanvas is valid but types may be strict
+    canvas: config.upscaled as any
   });
 
   resolution = config.resolution;
@@ -59,85 +61,89 @@ async function init(config: InitData): Promise<void> {
 
   ctx = original_canvas.getContext('bitmaprenderer');
 
+  // Left side of compare: plain 2× resize (not AI)
   const bitmap2 = await createImageBitmap(config.bitmap, {
     resizeHeight: config.resolution.height * 2,
     resizeWidth: config.resolution.width * 2,
   });
 
+  // Right side: real Anime4K / WebSR AI
   await websr.render(config.bitmap as any);
 
   if (ctx) {
     ctx.transferFromImageBitmap(bitmap2);
   }
+
+  postMessage({ cmd: 'ready' } satisfies WorkerResponseMessage);
 }
 
 /**
- * Switch to a different AI upscaling network
+ * Switch to a different AI upscaling network and re-render
  */
-async function switchNetwork(name: string, weights: any, bitmap: ImageBitmap): Promise<void> {
-  websr.switchNetwork(name as any, weights);
-
+async function switchNetwork(name: string, nextWeights: any, bitmap: ImageBitmap): Promise<void> {
+  if (!websr) {
+    throw new Error('WebSR not initialized yet');
+  }
+  websr.switchNetwork(name as any, nextWeights);
   await websr.render(bitmap as any);
+  postMessage({ cmd: 'networkReady' } satisfies WorkerResponseMessage);
 }
 
-
-
-
-
-
-// Processing functions moved to processors/
-
 /**
- * Worker message handler with type-safe message routing
+ * Export current AI canvas as PNG (images). Optionally re-render first.
  */
+async function exportImage(bitmap?: ImageBitmap): Promise<void> {
+  if (!upscaled_canvas || !websr) {
+    throw new Error('Upscaler not ready. Choose a file again.');
+  }
+  postMessage({ cmd: 'progress', data: 30 });
+  if (bitmap) {
+    await websr.render(bitmap as any);
+  }
+  postMessage({ cmd: 'progress', data: 70 });
+  const blob = await upscaled_canvas.convertToBlob({ type: 'image/png' });
+  postMessage({ cmd: 'progress', data: 100 });
+  postMessage({ cmd: 'finished', data: blob } satisfies WorkerResponseMessage);
+}
+
 self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
   if (!event.data.cmd) return;
 
-  switch (event.data.cmd) {
-    case 'init':
-      try {
+  try {
+    switch (event.data.cmd) {
+      case 'init':
         await init(event.data.data);
-      } catch (err: any) {
-        postMessage({
-          cmd: 'error',
-          data: err?.message || String(err) || 'WebGPU preview failed',
-        } satisfies WorkerResponseMessage);
-      }
-      break;
+        break;
 
-    case 'isSupported':
-      try {
+      case 'isSupported':
         await isSupported();
-      } catch {
-        postMessage({ cmd: 'isSupported', data: false } satisfies WorkerResponseMessage);
-      }
-      break;
+        break;
 
-    case 'pause':
-      if (!pauseLock) {
-        pauseLock = new Promise(resolve => { resolvePause = resolve; });
-        postMessage({ cmd: 'paused' } satisfies WorkerResponseMessage);
-      }
-      break;
+      case 'pause':
+        if (!pauseLock) {
+          pauseLock = new Promise(resolve => { resolvePause = resolve; });
+          postMessage({ cmd: 'paused' } satisfies WorkerResponseMessage);
+        }
+        break;
 
-    case 'resume':
-      if (pauseLock && resolvePause) {
-        resolvePause();
-        pauseLock = null;
-        resolvePause = null;
-        postMessage({ cmd: 'resumed' } satisfies WorkerResponseMessage);
-      }
-      break;
-    
-    case 'process':
-      try {
+      case 'resume':
+        if (pauseLock && resolvePause) {
+          resolvePause();
+          pauseLock = null;
+          resolvePause = null;
+          postMessage({ cmd: 'resumed' } satisfies WorkerResponseMessage);
+        }
+        break;
+
+      case 'process':
         if (!websr || !upscaled_canvas || !original_canvas || !resolution) {
           postMessage({
             cmd: 'error',
-            data: 'Upscaler not ready. Reload the page and choose a file again.',
+            data: 'Upscaler not ready. Reload and choose a file again.',
           } satisfies WorkerResponseMessage);
           break;
         }
+        // Same pipeline as competitor (WebDemuxer → WebSR → WebCodecs → mediabunny)
         await pipelineProcessor({
           file: event.data.file,
           inputHandle: event.data.inputHandle,
@@ -148,49 +154,26 @@ self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
           resolution,
           getPauseLock: () => pauseLock,
         });
-      } catch (err: any) {
-        postMessage({
-          cmd: 'error',
-          data: err?.message || String(err) || 'Processing failed',
-        } satisfies WorkerResponseMessage);
-      }
-      break;
+        break;
 
-    case 'exportImage':
-      try {
-        if (!upscaled_canvas) {
-          postMessage({
-            cmd: 'error',
-            data: 'No upscaled image ready. Choose a file again.',
-          } satisfies WorkerResponseMessage);
-          break;
-        }
-        postMessage({ cmd: 'progress', data: 50 });
-        const blob = await upscaled_canvas.convertToBlob({ type: 'image/png' });
-        postMessage({ cmd: 'progress', data: 100 });
-        postMessage({ cmd: 'finished', data: blob } satisfies WorkerResponseMessage);
-      } catch (err: any) {
-        postMessage({
-          cmd: 'error',
-          data: err?.message || String(err) || 'Image export failed',
-        } satisfies WorkerResponseMessage);
-      }
-      break;
+      case 'exportImage':
+        await exportImage(event.data.bitmap);
+        break;
 
-    case 'network':
-      try {
+      case 'network':
         await switchNetwork(
           event.data.data.name,
           event.data.data.weights,
           event.data.data.bitmap
         );
-      } catch (err: any) {
-        postMessage({
-          cmd: 'error',
-          data: err?.message || String(err) || 'Network switch failed',
-        } satisfies WorkerResponseMessage);
-      }
-      break;
+        break;
+    }
+  } catch (err: any) {
+    console.error('Worker error:', err);
+    postMessage({
+      cmd: 'error',
+      data: err?.message || String(err) || 'Worker failed',
+    } satisfies WorkerResponseMessage);
   }
 };
 

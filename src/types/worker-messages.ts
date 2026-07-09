@@ -20,7 +20,7 @@ export type WorkerRequestMessage =
       inputHandle?: FileSystemFileHandle;
       outputHandle?: FileSystemFileHandle;
     }
-  | { cmd: 'exportImage' }
+  | { cmd: 'exportImage'; bitmap?: ImageBitmap }
   | { cmd: 'pause' }
   | { cmd: 'resume' };
 
@@ -40,6 +40,8 @@ export interface NetworkData {
 // Messages sent FROM worker TO main thread
 export type WorkerResponseMessage =
   | { cmd: 'isSupported'; data: boolean }
+  | { cmd: 'ready' } // init finished (WebSR rendered first frame)
+  | { cmd: 'networkReady' } // network switch + re-render finished
   | { cmd: 'progress'; data: number }
   | { cmd: 'eta'; data: string }
   | { cmd: 'process' }

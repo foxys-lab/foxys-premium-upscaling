@@ -10,8 +10,42 @@ import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE=1900*1024*1024; //Just under 2GB, max ArrayBufferSize
 
-// Web Worker for video processing
+// Web Worker for video processing (same architecture as free-ai-video-upscaler)
 const worker = new Worker(new URL('./worker.ts', import.meta.url));
+
+// Waiters so we never switch network / export before WebSR finished (race was
+// causing blank / non-AI canvases — competitor fire-and-forgets; we wait.)
+type Waiter = { resolve: () => void; reject: (e: Error) => void };
+let readyWaiters: Waiter[] = [];
+let networkWaiters: Waiter[] = [];
+
+function waitForWorker(cmd: 'ready' | 'networkReady', timeoutMs = 60000): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const list = cmd === 'ready' ? readyWaiters : networkWaiters;
+        const timer = setTimeout(() => {
+            const idx = list.findIndex(w => w.resolve === wrappedResolve);
+            if (idx >= 0) list.splice(idx, 1);
+            reject(new Error(`Timed out waiting for WebSR ${cmd}. Try Chrome/Edge with WebGPU on.`));
+        }, timeoutMs);
+        const wrappedResolve = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        const wrappedReject = (e: Error) => {
+            clearTimeout(timer);
+            reject(e);
+        };
+        list.push({ resolve: wrappedResolve, reject: wrappedReject });
+    });
+}
+
+function flushWaiters(list: Waiter[], err?: Error) {
+    const copy = list.splice(0, list.length);
+    for (const w of copy) {
+        if (err) w.reject(err);
+        else w.resolve();
+    }
+}
 
 // Canvas and media elements
 let upscaled_canvas: HTMLCanvasElement;
@@ -155,46 +189,53 @@ function showUnsupported(text: string): void {
 }
 
 /**
- * Open the system file picker. Prefer a plain <input type="file"> so it always
- * works in Chrome/Edge without special permissions.
+ * Open the system file picker.
+ * Prefer File System Access API like free.upscaler.video when available
+ * (gives a real FileSystemFileHandle for the video pipeline); fall back to
+ * <input type="file"> so images/videos still open everywhere.
  */
 async function chooseFile(_e?: Event): Promise<void> {
     try {
+        // Competitor-style path first (Chrome/Edge desktop)
+        if (typeof window.showOpenFilePicker === 'function') {
+            try {
+                const [fileHandle] = await window.showOpenFilePicker({
+                    types: [
+                        {
+                            description: 'Images',
+                            accept: {
+                                'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'],
+                            },
+                        },
+                        {
+                            description: 'Videos',
+                            accept: {
+                                'video/mp4': ['.mp4'],
+                                'video/webm': ['.webm'],
+                                'video/quicktime': ['.mov'],
+                            },
+                        },
+                    ],
+                    multiple: false,
+                });
+                const file = await fileHandle.getFile();
+                await loadMediaFile(file, fileHandle);
+                return;
+            } catch (e: any) {
+                if (e?.name === 'AbortError') return;
+                // Fall through to <input> if picker type rejected
+                console.warn('showOpenFilePicker failed, falling back to input', e);
+            }
+        }
+
         const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
         if (fileInput) {
             fileInput.click();
             return;
         }
 
-        // Fallback: File System Access API
-        if (typeof window.showOpenFilePicker === 'function') {
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [
-                    {
-                        description: 'Images',
-                        accept: {
-                            'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'],
-                        },
-                    },
-                    {
-                        description: 'Videos',
-                        accept: {
-                            'video/mp4': ['.mp4'],
-                            'video/webm': ['.webm'],
-                            'video/quicktime': ['.mov'],
-                        },
-                    },
-                ],
-                multiple: false,
-            });
-            const file = await fileHandle.getFile();
-            await loadMediaFile(file, fileHandle);
-            return;
-        }
-
         showError('This browser cannot open local files. Use Chrome or Edge on desktop.');
     } catch (e: any) {
-        // User cancelled, or real error
         if (e?.name === 'AbortError') return;
         console.error(e);
         showError(e?.message || 'Could not open file picker');
@@ -298,6 +339,7 @@ async function setupImagePreview(file: File): Promise<void> {
     const upscaled = upscaled_canvas.transferControlToOffscreen();
     const original = original_canvas.transferControlToOffscreen();
 
+    const ready = waitForWorker('ready');
     worker.postMessage({
         cmd: 'init',
         data: {
@@ -307,6 +349,7 @@ async function setupImagePreview(file: File): Promise<void> {
             resolution: { width, height },
         },
     } satisfies WorkerRequestMessage, [bitmap, upscaled, original]);
+    await ready; // MUST finish before network switch / export
 
     content = 'rl';
     await updateNetwork();
@@ -386,6 +429,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         const original =    original_canvas.transferControlToOffscreen();
 
 
+        const ready = waitForWorker('ready');
         worker.postMessage({cmd: "init", data: {
                 bitmap,
                 upscaled,
@@ -396,9 +440,9 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }
 
             }}, [bitmap, upscaled, original]);
+        await ready; // Wait for WebSR first render (prevents network race / blank AI)
 
-
-        // Default to 'rl' (real life) network
+        // Default to 'rl' (real life) network — same as competitor
         content = 'rl';
         await updateNetwork();
         Alpine.store('style', 'rl');
@@ -567,6 +611,12 @@ worker.onmessage = function (event: MessageEvent<WorkerResponseMessage>) {
 
         if (!supported) return showUnsupported("WebGPU");
 
+    } else if (event.data.cmd === 'ready') {
+        flushWaiters(readyWaiters);
+
+    } else if (event.data.cmd === 'networkReady') {
+        flushWaiters(networkWaiters);
+
     } else if (event.data.cmd === 'progress') {
         Alpine.store('progress', event.data.data);
         if (Alpine.store('state') !== 'paused') {
@@ -577,6 +627,9 @@ worker.onmessage = function (event: MessageEvent<WorkerResponseMessage>) {
         // Processing started
 
     } else if (event.data.cmd === 'error') {
+        const err = new Error(event.data.data || 'Worker error');
+        flushWaiters(readyWaiters, err);
+        flushWaiters(networkWaiters, err);
         showError(event.data.data);
 
     } else if (event.data.cmd === 'eta') {
@@ -596,10 +649,11 @@ worker.onmessage = function (event: MessageEvent<WorkerResponseMessage>) {
 
 
 /**
- * Switch to a different upscaling network
+ * Switch to a different upscaling network — wait until WebSR finished re-render
  */
 async function updateNetwork(): Promise<void> {
     const bitmap = await getSourceBitmap();
+    const done = waitForWorker('networkReady');
 
     worker.postMessage({
         cmd: 'network',
@@ -608,13 +662,16 @@ async function updateNetwork(): Promise<void> {
             bitmap,
             weights: weights[size][content]
         }
-    } satisfies WorkerRequestMessage);
+    } satisfies WorkerRequestMessage, [bitmap]);
+
+    await done;
 }
 
 //===================  Process ===========================
 
 /**
  * Start upscaling: export PNG for images, full video pipeline for video
+ * Video path matches free-ai-video-upscaler (WebSR + WebDemuxer + WebCodecs).
  */
 async function initRecording(): Promise<void> {
     try {
@@ -622,12 +679,16 @@ async function initRecording(): Promise<void> {
             return showError('No file loaded. Choose a video or image first.');
         }
 
-        // Image: preview already ran WebSR — export the upscaled canvas as PNG
+        // Image: re-render with current network, then export PNG (guarantees AI applied)
         if (mediaKind === 'image') {
             Alpine.store('state', 'processing');
             Alpine.store('progress', 10);
-            Alpine.store('eta', 'exporting PNG…');
-            worker.postMessage({ cmd: 'exportImage' } satisfies WorkerRequestMessage);
+            Alpine.store('eta', 'AI upscaling image…');
+            const bitmap = await getSourceBitmap();
+            worker.postMessage(
+                { cmd: 'exportImage', bitmap } satisfies WorkerRequestMessage,
+                [bitmap]
+            );
             return;
         }
 

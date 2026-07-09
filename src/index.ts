@@ -1,12 +1,11 @@
 import Alpine from 'alpinejs';
-import ImageCompare from './lib/image-compare-viewer.min';
 import WebSR from '@websr/websr';
 import type { WorkerRequestMessage, WorkerResponseMessage } from './types/worker-messages';
+import { mountFoxyCompare, sizeCompareBox } from './lib/foxy-compare';
 
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import "./index.css";
-import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE=1900*1024*1024; //Just under 2GB, max ArrayBufferSize
 
@@ -304,18 +303,17 @@ async function setupImagePreview(file: File): Promise<void> {
     Alpine.store('size', humanFileSize(file.size * 2)); // rough output hint
     Alpine.store('target', 'blob');
 
+    // Re-query canvases (DOM structure has clip wrapper)
+    upscaled_canvas = document.getElementById('upscaled') as HTMLCanvasElement;
+    original_canvas = document.getElementById('original') as HTMLCanvasElement;
     upscaled_canvas.width = width * 2;
     upscaled_canvas.height = height * 2;
     original_canvas.width = width * 2;
     original_canvas.height = height * 2;
 
     const imageCompare = document.getElementById('image-compare-outer') as HTMLElement;
-    imageCompare.style.height = '318px';
-    imageCompare.style.width = `${Math.round((width / height) * 318)}px`;
-    imageCompare.style.margin = 'auto';
-    imageCompare.style.position = 'relative';
-
-    new ImageCompare(document.getElementById('image-compare')).mount();
+    sizeCompareBox(imageCompare, width, height, 320);
+    mountFoxyCompare(document.getElementById('image-compare') as HTMLElement);
 
     window.initRecording = initRecording;
     window.fullScreenPreview = async () => {
@@ -383,22 +381,29 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     video.onloadeddata = async function (){
         Alpine.store('width', video.videoWidth);
         Alpine.store('height', video.videoHeight);
-        upscaled_canvas.width = video.videoWidth*2;
-        upscaled_canvas.height = video.videoHeight*2;
-        original_canvas.width = video.videoWidth*2;
-        original_canvas.height = video.videoHeight*2;
 
+        upscaled_canvas = document.getElementById('upscaled') as HTMLCanvasElement;
+        original_canvas = document.getElementById('original') as HTMLCanvasElement;
+        upscaled_canvas.width = video.videoWidth * 2;
+        upscaled_canvas.height = video.videoHeight * 2;
+        original_canvas.width = video.videoWidth * 2;
+        original_canvas.height = video.videoHeight * 2;
 
-        imageCompare.style.height = '318px';
-        imageCompare.style.width =  `${Math.round(video.videoWidth/video.videoHeight*318)}px`
-        imageCompare.style.margin = 'auto';
-        imageCompare.style.position = 'relative';
+        sizeCompareBox(imageCompare, video.videoWidth, video.videoHeight, 320);
+        mountFoxyCompare(document.getElementById('image-compare') as HTMLElement);
 
-
-        new ImageCompare(document.getElementById('image-compare')).mount();
         video.currentTime = video.duration * 0.2 || 0;
-        if(video.requestVideoFrameCallback)  video.requestVideoFrameCallback(showPreview);
-        else requestAnimationFrame(showPreview);
+        let previewKicked = false;
+        const kickPreview = () => {
+            if (previewKicked) return;
+            previewKicked = true;
+            if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(showPreview);
+            else requestAnimationFrame(showPreview);
+        };
+        // Wait for seek so createImageBitmap gets a real frame (not black)
+        video.addEventListener('seeked', kickPreview, { once: true });
+        // Fallback if seeked never fires
+        setTimeout(kickPreview, 500);
 
         window.togglePause = function () {
             const currentState = Alpine.store('state');
@@ -408,7 +413,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 worker.postMessage({ cmd: 'resume' } satisfies WorkerRequestMessage);
             }
         };
-
     }
 
 

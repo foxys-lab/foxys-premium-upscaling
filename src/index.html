@@ -107,12 +107,19 @@
      class="w-[min(640px,92vw)] mx-auto bg-gray-light rounded-3xl h-fit min-h-[640px] p-6 box-border border border-gray-border"
      x-show="$store.state === 'preview' || $store.state === 'processing' || $store.state === 'complete' || $store.state === 'paused'">
 
-  <div id="image-compare-outer">
-    <div id="image-compare">
-      <canvas id="original"></canvas>
-      <canvas id="upscaled"></canvas>
+  <!-- Custom horizontal compare: AI full, original clipped left, drag handle -->
+  <div id="image-compare-outer" class="foxy-compare-outer">
+    <div id="image-compare" class="foxy-compare">
+      <canvas id="upscaled" class="foxy-compare-layer foxy-compare-ai"></canvas>
+      <div class="foxy-compare-clip">
+        <canvas id="original" class="foxy-compare-layer foxy-compare-src"></canvas>
+      </div>
+      <div class="foxy-compare-bar"><div class="foxy-compare-knob"></div></div>
+      <span class="foxy-compare-label foxy-compare-label-l">Original</span>
+      <span class="foxy-compare-label foxy-compare-label-r">AI 2×</span>
     </div>
   </div>
+  <p class="text-center text-muted text-xs mt-2 mb-1">Drag the handle — left = original, right = AI upscale</p>
 
   <img src="full-screen.svg" alt="Full Screen" width="15" height="15" id="full-screen"
        onclick="fullScreenPreview()" x-show="$store.state === 'preview'"

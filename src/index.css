@@ -80,14 +80,138 @@ video {
   display: flex;
 }
 
-#image-compare,
+/* —— Before / after compare (replaces broken vertical ImageCompare) —— */
+.foxy-compare-outer,
 #image-compare-outer {
   background: #0a0f1a;
   border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #243049;
 }
 
-#image-compare canvas {
-  max-width: 100%;
+.foxy-compare,
+#image-compare.foxy-compare {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  background: #000;
+}
+
+.foxy-compare-layer {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  display: block !important;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+/* AI under full frame */
+.foxy-compare-ai,
+#upscaled {
+  z-index: 1;
+}
+
+/* Original clipped to the left of the handle */
+.foxy-compare-clip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 2;
+  border-right: 0;
+}
+
+/* Original canvas = full frame width; clip parent reveals left portion only */
+.foxy-compare-clip .foxy-compare-src,
+.foxy-compare-clip #original {
+  width: var(--compare-w, 100%) !important;
+  max-width: none !important;
+  height: 100% !important;
+  left: 0 !important;
+  top: 0 !important;
+}
+
+.foxy-compare-bar {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 3px;
+  height: 100%;
+  background: #60a5fa;
+  transform: translateX(-50%);
+  z-index: 5;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.foxy-compare-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border: 2px solid #e0f2fe;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.foxy-compare-knob::before,
+.foxy-compare-knob::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  transform: translateY(-50%);
+}
+
+.foxy-compare-knob::before {
+  left: 8px;
+  border-width: 5px 6px 5px 0;
+  border-color: transparent #e0f2fe transparent transparent;
+}
+
+.foxy-compare-knob::after {
+  right: 8px;
+  border-width: 5px 0 5px 6px;
+  border-color: transparent transparent transparent #e0f2fe;
+}
+
+.foxy-compare-label {
+  position: absolute;
+  bottom: 10px;
+  z-index: 6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(7, 10, 18, 0.72);
+  color: #eef3ff;
+  pointer-events: none;
+}
+
+.foxy-compare-label-l {
+  left: 10px;
+}
+
+.foxy-compare-label-r {
+  right: 10px;
+  color: #93c5fd;
 }
 
 /* Brand header */
